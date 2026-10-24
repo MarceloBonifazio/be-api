@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="pt-BR">
+
+<head>
+    <title>be-cep-api · API</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+
+<body>
+    <script id="api-reference"></script>
+    <script>
+        // spec ao lado do /docs (robusto a trailing-slash e à base do SSR): tira /docs[/] e põe /openapi.json.
+        document.getElementById('api-reference').dataset.url = location.pathname.replace(/\/docs\/?$/, '') + '/openapi.json';
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+</body>
+
+</html>

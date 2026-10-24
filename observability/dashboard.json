@@ -1,0 +1,137 @@
+{
+  "__comment": "Dashboard do workload be-cep-api — VIVE NO REPO do workload (observability/dashboard.json). A equipe edita aqui; o Grafana recarrega via provisioning (folder 'workloads/be-cep-api'). GERADO: `make regenerate-obs NAME=be-cep-api` reescreve este arquivo — trave com configs/.regenerate-lock (ver README) antes de customizar.",
+  "title": "be-cep-api",
+  "uid": "wl-be-cep-api",
+  "tags": ["workload", "api", "aws"],
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 10, "type": "row", "title": "SLO · alvo 99.9% em 30d · p95 500ms",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "collapsed": false, "panels": []
+    },
+    {
+      "id": 11, "type": "stat", "title": "Availability (30d)",
+      "description": "SLI de disponibilidade: % de requests sem 5xx na janela, medido no Traefik (borda). Verde = dentro do SLO.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": {
+        "unit": "percent", "decimals": 3, "min": 0, "max": 100,
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "red", "value": null },
+          { "color": "green", "value": 99.9 }
+        ] }
+      }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value" },
+      "targets": [ { "refId": "A", "expr": "100 * workload:sli_availability:30d{service=\"be-cep-api\"}" } ]
+    },
+    {
+      "id": 12, "type": "stat", "title": "SLO",
+      "description": "Alvo declarado em observability.slo.availability (project.yaml). Fonte da verdade — edite lá e rode `make regenerate-obs`.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 3, "x": 4, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 3, "color": { "mode": "fixed", "fixedColor": "text" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "none", "textMode": "value" },
+      "targets": [ { "refId": "A", "expr": "vector(99.9)" } ]
+    },
+    {
+      "id": 13, "type": "stat", "title": "Error Budget",
+      "description": "Minutos de indisponibilidade tolerados na janela: (1 - 99.9/100) × 30d = 43min.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 3, "x": 7, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "m", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "text" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "none", "textMode": "value" },
+      "targets": [ { "refId": "A", "expr": "vector(43)" } ]
+    },
+    {
+      "id": 14, "type": "stat", "title": "Remaining",
+      "description": "% do error budget ainda não consumido na janela. Negativo = SLO estourado.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 10, "y": 1 },
+      "fieldConfig": { "defaults": {
+        "unit": "percent", "decimals": 0, "min": -100, "max": 100,
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "red", "value": null },
+          { "color": "orange", "value": 25 },
+          { "color": "green", "value": 50 }
+        ] }
+      }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value" },
+      "targets": [ { "refId": "A", "expr": "clamp_min(100 * (1 - (1 - workload:sli_availability:30d{service=\"be-cep-api\"}) / 0.001), -100)" } ]
+    },
+    {
+      "id": 15, "type": "stat", "title": "p50",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 3, "x": 14, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 3, "color": { "mode": "fixed", "fixedColor": "text" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "area", "textMode": "value" },
+      "targets": [ { "refId": "A", "expr": "histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"be-cep-api\"}[5m])))" } ]
+    },
+    {
+      "id": 16, "type": "stat", "title": "p95",
+      "description": "Alvo do SLO: 500ms. Verde = dentro do alvo.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 3, "x": 17, "y": 1 },
+      "fieldConfig": { "defaults": {
+        "unit": "s", "decimals": 3,
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "green", "value": null },
+          { "color": "red", "value": 0.5 }
+        ] }
+      }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value" },
+      "targets": [ { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"be-cep-api\"}[5m])))" } ]
+    },
+    {
+      "id": 17, "type": "stat", "title": "p99",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 3, "color": { "mode": "fixed", "fixedColor": "text" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "area", "textMode": "value" },
+      "targets": [ { "refId": "A", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"be-cep-api\"}[5m])))" } ]
+    },
+    {
+      "id": 1, "type": "timeseries", "title": "Throughput (req/s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "sum(rate(traefik_traefik_service_requests_total{service=~\"be-cep-api@.*\"}[1m]))", "legendFormat": "total" } ]
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "Error rate (5xx %)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 2, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.1 } ] } }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "100 * sum(rate(traefik_traefik_service_requests_total{service=~\"be-cep-api@.*\",code=~\"5..\"}[5m])) / clamp_min(sum(rate(traefik_traefik_service_requests_total{service=~\"be-cep-api@.*\"}[5m])), 0.001)", "legendFormat": "5xx" } ]
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Requests/s (por status)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "sum by (code) (rate(traefik_traefik_service_requests_total{service=~\"be-cep-api@.*\"}[1m]))", "legendFormat": "{{code}}" } ]
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Latência p50 · p95 · p99 (s)",
+      "description": "Quantis do /metrics do app (label de rota).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"be-cep-api\"}[5m])))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"be-cep-api\"}[5m])))", "legendFormat": "p95" },
+        { "refId": "C", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"be-cep-api\"}[5m])))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 5, "type": "logs", "title": "Logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 20 },
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" },
+      "targets": [ { "refId": "A", "expr": "{service=\"be-cep-api\"}" } ]
+    }
+  ]
+}

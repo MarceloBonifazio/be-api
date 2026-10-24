@@ -1,0 +1,51 @@
+# GERADO — o build roda DENTRO do container; lixo do host (arch errada) nunca deve
+# entrar via `COPY . .`. Só exclui VCS, deps e artefatos de build (recriados no build).
+
+# VCS / editor
+.git
+.gitignore
+.idea
+.vscode
+*.iml
+
+# Dependências (reinstaladas no build)
+node_modules
+vendor
+deps
+.bundle
+
+# Artefatos de build (recompilados no build)
+dist
+build
+target
+_build
+bin
+obj
+.next
+.nuxt
+.svelte-kit
+.output
+.vite
+.gradle
+__pycache__
+*.pyc
+.venv
+venv
+
+# Caches / logs / runtime
+*.log
+coverage
+.pytest_cache
+.mypy_cache
+tmp
+log
+
+# Segredos locais (vêm do Vault)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Docker (não precisa ir pro contexto de build)
+Dockerfile*
+.dockerignore

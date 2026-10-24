@@ -1,0 +1,100 @@
+# GERADO pelo create-project — NÃO editar à mão (regenere via plataforma).
+# Deploy manual: escolhe a TAG (default `latest`), VERIFICA que o artefato existe na cloud
+# aws (gate — só finaliza depois de garantir que a imagem/bundle subiu) e então promove.
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Versão a promover (tag X.Y.Z ou "latest")'
+        default: latest
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TAG: ${{ github.event.inputs.tag }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: gate — artefato $TAG existe na cloud?
+        run: |
+          aws ecr describe-images --repository-name "be-cep-api" --image-ids imageTag="$TAG" >/dev/null
+
+  test:
+    runs-on: ubuntu-latest
+    # Banco(s) de resources: — a suíte precisa deles p/ cobrir a camada de persistência.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U app -d app"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+          --health-start-period 5s
+    env:
+      DATABASE_URL: postgres://app:app@localhost:5432/app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: gradle test jacocoTestReport --no-daemon
+      - name: cache do SonarScanner (plugins/analyzers — evita re-download a cada análise)
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+      - name: SonarQube scan (quality — lê configs/sonar-project.properties)
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v4
+        with:
+          # O properties mora em configs/; a action só o descobre na raiz. projectBaseDir vai junto,
+          # senão a base da análise viraria configs/ e o scan varreria só aquela pasta.
+          args: -Dproject.settings=configs/sonar-project.properties -Dsonar.projectBaseDir=.
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      - name: gate de cobertura (minCoverage=0, fixado no create)
+        run: |
+          MIN=0
+          if [ "$MIN" -eq 0 ]; then echo "gate desligado (minCoverage 0)"; exit 0; fi
+          L=$(grep -oE '<counter type="LINE"[^/]*/>' build/reports/jacoco/test/jacocoTestReport.xml | tail -1)
+          MI=$(echo "$L" | grep -oE 'missed="[0-9]+"' | grep -oE '[0-9]+'); CO=$(echo "$L" | grep -oE 'covered="[0-9]+"' | grep -oE '[0-9]+')
+          COV=$(awk "BEGIN{t=${MI:-0}+${CO:-0}; print t?int(${CO:-0}/t*100):0}")
+          echo "cobertura $COV% (mínimo $MIN%)"
+          [ "$COV" -ge "$MIN" ] || { echo "::error::cobertura $COV% < $MIN% — bloqueia release/prod"; exit 1; }
+  deploy:
+    needs: [verify, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_wrapper: false }
+      - name: terraform apply (image=$TAG)
+        working-directory: infra/aws
+        run: |
+          terraform init -input=false
+          terraform apply -input=false -auto-approve -var "image=$TAG"

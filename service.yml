@@ -1,0 +1,107 @@
+# Fragmento de compose do `be-cep-api` (api · java/spring) — DEV. GERADO.
+# Auto-registro no Traefik via labels.
+# Composto com a base por `compose.gen.mjs` (make up). Rede `platform` vem da base.
+services:
+  be-cep-api:
+    build:
+      context: ./projects/be-cep-api
+      # UM Dockerfile, dois targets. O de prod está no service.prod.yml, que sobrepõe este bloco.
+      # Eram dois arquivos que divergiam em silêncio — correção num não chegava no outro.
+      dockerfile: Dockerfile
+      target: dev
+    # `no` para quem TERMINA (batch/cron): o processo sai ao concluir, e `unless-stopped` o
+    # reiniciaria em laço. Em dev não há agendador — o container roda uma vez no `make up`.
+    restart: unless-stopped
+    environment:
+      PORT: "4000"
+      APP_ENV: development
+      # Hot-reload sobre bind-mount (polling — robusto no Docker Desktop/macOS).
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHFILES_FORCE_POLLING: "true"
+      DOTNET_USE_POLLING_FILE_WATCHER: "true"
+      # Segredos: namespace dedicado no Vault (secret/be-cep-api/dev).
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: "${VAULT_TOKEN:-dev-root-token}"
+      VAULT_SECRET_PATH: "secret/data/be-cep-api/dev"
+      # Cloud local: floci-aws (imagem/porta próprias por cloud). "Tudo via floci" em dev.
+      # Envs específicas da cloud: AWS SDK · Azure connection string · GCP emulator hosts.
+      AWS_ENDPOINT_URL: "http://floci-aws:4566"
+      AWS_REGION: "${AWS_REGION:-sa-east-1}"
+      AWS_ACCESS_KEY_ID: "test"
+      AWS_SECRET_ACCESS_KEY: "test"
+      DATABASE_URL: "postgres://app:app@be-cep-api-postgres:5432/app"
+      KAFKA_BROKERS: "redpanda:9092"
+
+      # Stream — broker do runtime (kafka); destino/grupo do workload.
+      KAFKA_TOPIC: "be-cep-api.events"
+      KAFKA_GROUP: "be-cep-api"
+    volumes:
+      - ./projects/be-cep-api:/app          # hot-reload (bind-mount do source)
+      - /app/target                 # preserva deps/artefatos da imagem
+    networks: [platform]
+    depends_on:
+      # O app só sobe depois de o tópico/fila existirem: senão o cliente cria o
+      # tópico por auto-create com 1 partição e a configuração explícita se perde.
+      be-cep-api-provision: { condition: service_completed_successfully }
+      redpanda: { condition: service_started }
+
+      be-cep-api-postgres: { condition: service_healthy }  # espera o backend de dados ficar pronto
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=platform"
+      # API HTTP em /api/be-cep-api (strip → app vê "/")
+      - "traefik.http.routers.be-cep-api.rule=PathPrefix(`/api/be-cep-api`)"
+      - "traefik.http.middlewares.be-cep-api-strip.stripprefix.prefixes=/api/be-cep-api"
+      - "traefik.http.routers.be-cep-api.middlewares=be-cep-api-strip"
+      - "traefik.http.routers.be-cep-api.entrypoints=web"
+      - "traefik.http.routers.be-cep-api.service=be-cep-api"
+      - "traefik.http.services.be-cep-api.loadbalancer.server.port=4000"
+  # ── Provisionamento dos recursos deste workload ────────────────────────────────────────────────
+  # Cria tópico Kafka, fila SQS e tópico SNS ANTES de o app subir, e termina. Idempotente.
+  #
+  # Existe porque provisionar não era tarefa de ninguém no andaime: o Kafka dependia do auto-create do
+  # redpanda (que dá SEMPRE 1 partição — sem paralelismo no consumer-group e sem ordenação real por
+  # chave — e transforma erro de digitação em tópico novo, em silêncio), e a fila/tópico da cloud só
+  # existiam se o código do app os criasse.
+  be-cep-api-provision:
+    image: redpandadata/redpanda:v24.2.7
+    user: root
+    restart: "no"
+    entrypoint: ["/bin/bash", "-lc"]
+    # Lista de UM elemento, e não `command: |` em string: em string o compose parte o valor em
+    # palavras, e o bash recebe `set` como comando com o resto como argumentos posicionais — imprime
+    # o ambiente e não executa nada. Só se descobre rodando.
+    command:
+      - |
+        set -e
+        rpk topic create be-cep-api.events -p 3 --brokers redpanda:9092 || true
+        echo "topico be-cep-api.events pronto (3 particoes)"
+    networks: [platform]
+    depends_on:
+      redpanda: { condition: service_started }
+
+  # Backend de dados DEDICADO do recurso (be-cep-api-postgres) — DEV. Efêmero (dados recriados no make down/up);
+  # em prod o recurso vem do Terraform/Vault. O app espera ficar `healthy` (depends_on acima).
+  be-cep-api-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "app"
+      POSTGRES_PASSWORD: "app"
+      POSTGRES_DB: "app"
+    networks: [platform]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  # Dashboard + alertas/SLOs do workload no Grafana (provisionados a partir do REPO do workload:
+  # projects/be-cep-api/observability/). Merge no service `grafana` da base → o provider "workloads"
+  # carrega o dashboard como folder "be-cep-api" (recarrega ao editar, 10s); o alerts.yaml entra no
+  # unified-alerting provisioning como regras na folder "workloads".
+  grafana:
+    volumes:
+      - ./projects/be-cep-api/observability:/workload-dashboards/be-cep-api:ro
+      - ./projects/be-cep-api/observability/alerts.yaml:/etc/grafana/provisioning/alerting/be-cep-api.yaml:ro

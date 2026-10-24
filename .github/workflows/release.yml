@@ -1,0 +1,100 @@
+# GERADO pelo create-project — NÃO editar à mão (regenere via plataforma).
+# Release no merge na `main`: release-please calcula a versão (prioridade dos Conventional
+# Commits), bumpa o arquivo de versão (maven) e cria tag + changelog; ao sair um
+# release, PUBLICA o artefato (imagem no registry) na cloud aws.
+# Fluxo completo: docs/ci-cd.md do orquestrador.
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+      version: ${{ steps.rp.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          release-type: maven
+          # token: ${{ secrets.RELEASE_PLEASE_TOKEN }}  # PAT p/ o release disparar outros workflows
+
+  test:
+    runs-on: ubuntu-latest
+    # Banco(s) de resources: — a suíte precisa deles p/ cobrir a camada de persistência.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U app -d app"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+          --health-start-period 5s
+    env:
+      DATABASE_URL: postgres://app:app@localhost:5432/app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: gradle test jacocoTestReport --no-daemon
+      - name: cache do SonarScanner (plugins/analyzers — evita re-download a cada análise)
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+      - name: SonarQube scan (quality — lê configs/sonar-project.properties)
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v4
+        with:
+          # O properties mora em configs/; a action só o descobre na raiz. projectBaseDir vai junto,
+          # senão a base da análise viraria configs/ e o scan varreria só aquela pasta.
+          args: -Dproject.settings=configs/sonar-project.properties -Dsonar.projectBaseDir=.
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      - name: gate de cobertura (minCoverage=0, fixado no create)
+        run: |
+          MIN=0
+          if [ "$MIN" -eq 0 ]; then echo "gate desligado (minCoverage 0)"; exit 0; fi
+          L=$(grep -oE '<counter type="LINE"[^/]*/>' build/reports/jacoco/test/jacocoTestReport.xml | tail -1)
+          MI=$(echo "$L" | grep -oE 'missed="[0-9]+"' | grep -oE '[0-9]+'); CO=$(echo "$L" | grep -oE 'covered="[0-9]+"' | grep -oE '[0-9]+')
+          COV=$(awk "BEGIN{t=${MI:-0}+${CO:-0}; print t?int(${CO:-0}/t*100):0}")
+          echo "cobertura $COV% (mínimo $MIN%)"
+          [ "$COV" -ge "$MIN" ] || { echo "::error::cobertura $COV% < $MIN% — bloqueia release/prod"; exit 1; }
+  publish:
+    needs: [release, test]
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: build + push (ECR)
+        run: |
+          IMG="${{ vars.AWS_ECR_REGISTRY }}/be-cep-api"
+          docker build -f Dockerfile --target runner -t "$IMG:$VERSION" -t "$IMG:latest" .
+          docker push "$IMG:$VERSION" && docker push "$IMG:latest"

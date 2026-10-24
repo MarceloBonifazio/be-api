@@ -1,0 +1,130 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "be-cep-api — contrato operacional",
+    "version": "0.0.1",
+    "description": "Spec ESTÁTICO do contrato operacional da plataforma (health/ready/version/metrics + extras). É o piso servido em /openapi.json por todo workload. Documente as ROTAS DA SUA API por cima — com a lib nativa do seu stack (ver README) ou editando este arquivo. O portal da plataforma agrega os /openapi.json de todos os serviços."
+  },
+  "servers": [
+    { "url": "/api/be-cep-api", "description": "via Traefik (strip de /api)" },
+    { "url": "/", "description": "acesso direto ao container" }
+  ],
+  "tags": [
+    { "name": "contract", "description": "Contrato operacional da plataforma (gerado pelo scaffold)." }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["contract"], "summary": "Liveness pura", "operationId": "health",
+        "description": "Liveness — NÃO checa dependências. Use no k8s livenessProbe.",
+        "responses": { "200": { "description": "Vivo", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Up" }, "example": { "status": "UP" } } } } }
+      }
+    },
+    "/live": {
+      "get": {
+        "tags": ["contract"], "summary": "Liveness (alias)", "operationId": "live",
+        "responses": { "200": { "description": "Vivo", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Up" } } } } }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": ["contract"], "summary": "Readiness", "operationId": "ready",
+        "description": "Readiness — checa SÓ os recursos declarados (cassandra/redis/kafka). 200 READY · 503 NOT_READY. Use no k8s readinessProbe.",
+        "responses": {
+          "200": { "description": "Pronto", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Readiness" }, "example": { "status": "READY", "service": "be-cep-api", "checks": {} } } } },
+          "503": { "description": "Não pronto", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Readiness" }, "example": { "status": "NOT_READY", "service": "be-cep-api", "checks": { "redis": "DOWN" } } } } }
+        }
+      }
+    },
+    "/version": {
+      "get": {
+        "tags": ["contract"], "summary": "Metadados de versão", "operationId": "version",
+        "responses": { "200": { "description": "Metadados", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Version" } } } } }
+      }
+    },
+    "/info": {
+      "get": {
+        "tags": ["contract"], "summary": "Info de runtime", "operationId": "info",
+        "responses": { "200": { "description": "Info", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Info" } } } } }
+      }
+    },
+    "/build": {
+      "get": {
+        "tags": ["contract"], "summary": "Metadados de build", "operationId": "build",
+        "responses": { "200": { "description": "Build", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Build" } } } } }
+      }
+    },
+    "/config": {
+      "get": {
+        "tags": ["contract"], "summary": "Config efetiva (segredos redigidos)", "operationId": "config",
+        "description": "Env efetivo com segredos redigidos (***) por regex de chaves sensíveis.",
+        "responses": { "200": { "description": "Config", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Config" } } } } }
+      }
+    },
+    "/status": {
+      "get": {
+        "tags": ["contract"], "summary": "Status consolidado", "operationId": "status",
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Status" } } } },
+          "503": { "description": "Degradado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Status" } } } }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": ["contract"], "summary": "Métricas Prometheus", "operationId": "metrics",
+        "responses": { "200": { "description": "Exposição Prometheus (text/plain; version=0.0.4)", "content": { "text/plain": { "schema": { "type": "string" } } } } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Up": { "type": "object", "properties": { "status": { "type": "string", "enum": ["UP"] } }, "required": ["status"] },
+      "Readiness": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["READY", "NOT_READY"] },
+          "service": { "type": "string" },
+          "checks": { "type": "object", "additionalProperties": { "type": "string", "enum": ["UP", "DOWN"] } }
+        },
+        "required": ["status", "checks"]
+      },
+      "Version": {
+        "type": "object",
+        "properties": {
+          "service": { "type": "string" }, "version": { "type": "string" },
+          "commit": { "type": "string" }, "branch": { "type": "string" },
+          "buildTime": { "type": "string" }, "runtime": { "type": "string" },
+          "environment": { "type": "string" }
+        },
+        "required": ["service", "version"]
+      },
+      "Info": {
+        "type": "object",
+        "properties": {
+          "service": { "type": "string" }, "environment": { "type": "string" },
+          "region": { "type": "string" }, "uptime": { "type": "number" }, "runtime": { "type": "string" }
+        }
+      },
+      "Build": {
+        "type": "object",
+        "properties": {
+          "service": { "type": "string" }, "commit": { "type": "string" }, "branch": { "type": "string" },
+          "buildTime": { "type": "string" }, "image": { "type": "string" }, "tag": { "type": "string" }, "pipeline": { "type": "string" }
+        }
+      },
+      "Config": {
+        "type": "object",
+        "properties": { "service": { "type": "string" }, "config": { "type": "object", "additionalProperties": { "type": "string" } } }
+      },
+      "Status": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["READY", "NOT_READY"] },
+          "service": { "type": "string" }, "version": { "type": "string" },
+          "checks": { "type": "object", "additionalProperties": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

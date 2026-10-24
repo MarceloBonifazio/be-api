@@ -1,0 +1,31 @@
+# Breaker de regeneração do `be-cep-api` — VERSIONE este arquivo.
+#
+# Partes deste repo são GERADAS a partir do project.yaml e podem ser reescritas por quem rodar
+# `make regenerate-ci` / `make regenerate-obs` / `make add-resource` na plataforma. Se o time customizou algum desses
+# arquivos, DESCOMENTE a área correspondente: o gerador passa a pular este workload e avisa que
+# pulou, em vez de sobrescrever o trabalho em silêncio.
+#
+# Uma área por linha. Comentário (#) e linha vazia são ignorados.
+#
+#   observability   trava observability/dashboard.json, observability/alerts.yaml
+#                   e o target de scrape do Prometheus (make regenerate-obs)
+#   ci              trava .github/workflows/release.yml e deploy.yml (make regenerate-ci)
+#   compose         trava DOIS arquivos, porque os dois saem do mesmo template:
+#                     · docker-compose.yml, o standalone do repo (make add-resource)
+#                     · service.yml, o fragmento que a plataforma junta no `make up`
+#                       (make regenerate-compose)
+#                   Trave se você mexeu em qualquer um à mão — acrescentar imagem, montar volume,
+#                   mudar healthcheck, ou OMITIR de propósito uma env que vem de outra fonte
+#                   (Vault, por exemplo). O gerador reescreve o arquivo INTEIRO: o que ele traz de
+#                   volta não é só a env, é a perda do comentário que explicava a omissão.
+#
+# Nada travado por padrão: recém-criado, o gerado é exatamente o que o create produziu, então
+# regenerar é inofensivo — e é assim que uma mudança na plataforma (novo recurso em `resources:`,
+# novo painel no dashboard) chega até aqui.
+#
+# Para destravar, comente a linha de novo. Quem precisa sobrescrever mesmo travado usa
+# `ARGS=--force`, que registra o aviso no log.
+
+# observability
+# ci
+# compose
