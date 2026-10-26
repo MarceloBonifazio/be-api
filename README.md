@@ -28,7 +28,7 @@ Para parar a stack standalone: `docker compose down`. Os volumes preservam os da
 
 ## Arquitetura
 
-Um serviço de clientes com camadas HTTP, aplicação, JPA e adaptadores Kafka/Score. Keycloak é o servidor de identidade; a API é Resource Server JWT. Decisões e limites estão em `../../docs/customers-architecture.md` no orquestrador. O frontend é uma SPA separada e o Score é simulado por WireMock.
+Um serviço de clientes com camadas HTTP, aplicação, JPA e adaptadores Kafka/Score. Keycloak é o servidor de identidade; a API é Resource Server JWT. O frontend é uma SPA separada e o Score é simulado por WireMock.
 
 POST grava cliente e evento na mesma transação (outbox). Um publicador periódico envia os eventos pendentes. O consumidor altera status e registra `eventId` na mesma transação, tolerando duplicatas. O sistema usa entrega pelo menos uma vez, sem transação distribuída.
 
@@ -94,7 +94,7 @@ O publicador mantém eventos na outbox durante indisponibilidade do Kafka e tent
 
 ## Como iniciar as dependências
 
-O Compose inicia automaticamente PostgreSQL, Redpanda (Kafka compatível), Keycloak e WireMock. Na raiz, `make up-base` inicia somente a infraestrutura e `make up-staged` inicia a solução completa.
+O Compose inicia automaticamente PostgreSQL, Redpanda (Kafka compatível), Keycloak e WireMock.
 
 ## Configuração
 
