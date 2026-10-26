@@ -1,128 +1,476 @@
 {
-  "openapi": "3.1.0",
+  "openapi": "3.0.3",
   "info": {
-    "title": "be-cep-api — contrato operacional",
-    "version": "0.0.1",
-    "description": "Spec ESTÁTICO do contrato operacional da plataforma (health/ready/version/metrics + extras). É o piso servido em /openapi.json por todo workload. Documente as ROTAS DA SUA API por cima — com a lib nativa do seu stack (ver README) ou editando este arquivo. O portal da plataforma agrega os /openapi.json de todos os serviços."
+    "title": "Nucleus Customers API",
+    "version": "0.0.1"
   },
   "servers": [
-    { "url": "/api/be-cep-api", "description": "via Traefik (strip de /api)" },
-    { "url": "/", "description": "acesso direto ao container" }
+    {
+      "url": "/api/be-api"
+    }
   ],
-  "tags": [
-    { "name": "contract", "description": "Contrato operacional da plataforma (gerado pelo scaffold)." }
+  "security": [
+    {
+      "bearerAuth": []
+    }
   ],
   "paths": {
-    "/health": {
+    "/customers": {
       "get": {
-        "tags": ["contract"], "summary": "Liveness pura", "operationId": "health",
-        "description": "Liveness — NÃO checa dependências. Use no k8s livenessProbe.",
-        "responses": { "200": { "description": "Vivo", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Up" }, "example": { "status": "UP" } } } } }
-      }
-    },
-    "/live": {
-      "get": {
-        "tags": ["contract"], "summary": "Liveness (alias)", "operationId": "live",
-        "responses": { "200": { "description": "Vivo", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Up" } } } } }
-      }
-    },
-    "/ready": {
-      "get": {
-        "tags": ["contract"], "summary": "Readiness", "operationId": "ready",
-        "description": "Readiness — checa SÓ os recursos declarados (cassandra/redis/kafka). 200 READY · 503 NOT_READY. Use no k8s readinessProbe.",
+        "summary": "Lista clientes",
+        "description": "Requer USER ou ADMIN.",
         "responses": {
-          "200": { "description": "Pronto", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Readiness" }, "example": { "status": "READY", "service": "be-cep-api", "checks": {} } } } },
-          "503": { "description": "Não pronto", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Readiness" }, "example": { "status": "NOT_READY", "service": "be-cep-api", "checks": { "redis": "DOWN" } } } } }
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos"
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Sem autorização"
+          },
+          "404": {
+            "description": "Cliente ou Score inexistente"
+          },
+          "409": {
+            "description": "CPF duplicado ou conflito concorrente"
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "INACTIVE"
+              ]
+            }
+          }
+        ]
+      },
+      "post": {
+        "summary": "Cadastra cliente e registra CUSTOMER_CREATED na outbox",
+        "description": "Requer ADMIN.",
+        "responses": {
+          "201": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Customer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos"
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Sem autorização"
+          },
+          "404": {
+            "description": "Cliente ou Score inexistente"
+          },
+          "409": {
+            "description": "CPF duplicado ou conflito concorrente"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerInput"
+              }
+            }
+          }
         }
       }
     },
-    "/version": {
+    "/customers/search": {
       "get": {
-        "tags": ["contract"], "summary": "Metadados de versão", "operationId": "version",
-        "responses": { "200": { "description": "Metadados", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Version" } } } } }
-      }
-    },
-    "/info": {
-      "get": {
-        "tags": ["contract"], "summary": "Info de runtime", "operationId": "info",
-        "responses": { "200": { "description": "Info", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Info" } } } } }
-      }
-    },
-    "/build": {
-      "get": {
-        "tags": ["contract"], "summary": "Metadados de build", "operationId": "build",
-        "responses": { "200": { "description": "Build", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Build" } } } } }
-      }
-    },
-    "/config": {
-      "get": {
-        "tags": ["contract"], "summary": "Config efetiva (segredos redigidos)", "operationId": "config",
-        "description": "Env efetivo com segredos redigidos (***) por regex de chaves sensíveis.",
-        "responses": { "200": { "description": "Config", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Config" } } } } }
-      }
-    },
-    "/status": {
-      "get": {
-        "tags": ["contract"], "summary": "Status consolidado", "operationId": "status",
+        "summary": "Busca parcial por nome, sem distinguir maiúsculas",
+        "description": "Requer USER ou ADMIN.",
         "responses": {
-          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Status" } } } },
-          "503": { "description": "Degradado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Status" } } } }
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos"
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Sem autorização"
+          },
+          "404": {
+            "description": "Cliente ou Score inexistente"
+          },
+          "409": {
+            "description": "CPF duplicado ou conflito concorrente"
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ]
+      }
+    },
+    "/customers/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      ],
+      "get": {
+        "summary": "Consulta cliente",
+        "description": "Requer USER ou ADMIN.",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Customer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos"
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Sem autorização"
+          },
+          "404": {
+            "description": "Cliente ou Score inexistente"
+          },
+          "409": {
+            "description": "CPF duplicado ou conflito concorrente"
+          }
+        }
+      },
+      "put": {
+        "summary": "Altera cliente",
+        "description": "Requer ADMIN.",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Customer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos"
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Sem autorização"
+          },
+          "404": {
+            "description": "Cliente ou Score inexistente"
+          },
+          "409": {
+            "description": "CPF duplicado ou conflito concorrente"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerInput"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Exclui cliente",
+        "description": "Requer ADMIN.",
+        "responses": {
+          "204": {
+            "description": "Sucesso"
+          },
+          "400": {
+            "description": "Dados inválidos"
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Sem autorização"
+          },
+          "404": {
+            "description": "Cliente ou Score inexistente"
+          },
+          "409": {
+            "description": "CPF duplicado ou conflito concorrente"
+          }
+        }
+      }
+    },
+    "/customers/{id}/score": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      ],
+      "get": {
+        "summary": "Consulta Score pelo CPF do cliente",
+        "description": "Requer USER ou ADMIN.",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Score"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos"
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Sem autorização"
+          },
+          "404": {
+            "description": "Cliente ou Score inexistente"
+          },
+          "409": {
+            "description": "CPF duplicado ou conflito concorrente"
+          },
+          "502": {
+            "description": "Resposta inválida ou erro HTTP do serviço externo"
+          },
+          "503": {
+            "description": "Serviço externo inacessível"
+          },
+          "504": {
+            "description": "Timeout externo"
+          }
         }
       }
     },
     "/metrics": {
       "get": {
-        "tags": ["contract"], "summary": "Métricas Prometheus", "operationId": "metrics",
-        "responses": { "200": { "description": "Exposição Prometheus (text/plain; version=0.0.4)", "content": { "text/plain": { "schema": { "type": "string" } } } } }
+        "tags": [
+          "contract"
+        ],
+        "summary": "Métricas Prometheus",
+        "operationId": "metrics",
+        "description": "Exposição das métricas operacionais no formato Prometheus.",
+        "responses": {
+          "200": {
+            "description": "Exposição Prometheus (text/plain; version=0.0.4)",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
   "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
     "schemas": {
-      "Up": { "type": "object", "properties": { "status": { "type": "string", "enum": ["UP"] } }, "required": ["status"] },
-      "Readiness": {
+      "CustomerInput": {
         "type": "object",
+        "required": [
+          "name",
+          "cpf",
+          "email",
+          "status"
+        ],
         "properties": {
-          "status": { "type": "string", "enum": ["READY", "NOT_READY"] },
-          "service": { "type": "string" },
-          "checks": { "type": "object", "additionalProperties": { "type": "string", "enum": ["UP", "DOWN"] } }
-        },
-        "required": ["status", "checks"]
-      },
-      "Version": {
-        "type": "object",
-        "properties": {
-          "service": { "type": "string" }, "version": { "type": "string" },
-          "commit": { "type": "string" }, "branch": { "type": "string" },
-          "buildTime": { "type": "string" }, "runtime": { "type": "string" },
-          "environment": { "type": "string" }
-        },
-        "required": ["service", "version"]
-      },
-      "Info": {
-        "type": "object",
-        "properties": {
-          "service": { "type": "string" }, "environment": { "type": "string" },
-          "region": { "type": "string" }, "uptime": { "type": "number" }, "runtime": { "type": "string" }
+          "name": {
+            "type": "string",
+            "maxLength": 150
+          },
+          "cpf": {
+            "type": "string",
+            "pattern": "^[0-9]{11}$"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "INACTIVE"
+            ]
+          }
         }
       },
-      "Build": {
+      "Customer": {
         "type": "object",
         "properties": {
-          "service": { "type": "string" }, "commit": { "type": "string" }, "branch": { "type": "string" },
-          "buildTime": { "type": "string" }, "image": { "type": "string" }, "tag": { "type": "string" }, "pipeline": { "type": "string" }
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 150
+          },
+          "cpf": {
+            "type": "string",
+            "pattern": "^[0-9]{11}$"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "INACTIVE"
+            ]
+          }
         }
       },
-      "Config": {
-        "type": "object",
-        "properties": { "service": { "type": "string" }, "config": { "type": "object", "additionalProperties": { "type": "string" } } }
-      },
-      "Status": {
+      "Score": {
         "type": "object",
         "properties": {
-          "status": { "type": "string", "enum": ["READY", "NOT_READY"] },
-          "service": { "type": "string" }, "version": { "type": "string" },
-          "checks": { "type": "object", "additionalProperties": { "type": "string" } }
+          "cpf": {
+            "type": "string",
+            "pattern": "^[0-9]{11}$"
+          },
+          "score": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "classification": {
+            "type": "string"
+          }
+        }
+      },
+      "CustomerPage": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Customer"
+            }
+          },
+          "totalElements": {
+            "type": "integer"
+          },
+          "totalPages": {
+            "type": "integer"
+          },
+          "number": {
+            "type": "integer"
+          }
         }
       }
     }

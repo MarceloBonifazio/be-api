@@ -1,6 +1,6 @@
 variable "name" {
   type    = string
-  default = "be-cep-api"
+  default = "be-api"
 }
 
 variable "port" {
@@ -15,7 +15,7 @@ variable "image" {
 
 variable "domain" {
   type    = string
-  default = "be-cep-api.local"
+  default = "be-api.local"
 }
 
 variable "region" {

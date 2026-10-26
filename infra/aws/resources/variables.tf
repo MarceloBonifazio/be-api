@@ -1,6 +1,6 @@
 variable "name" {
   type    = string
-  default = "be-cep-api"
+  default = "be-api"
 }
 
 variable "env" {

@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/scores/[0-9]{11}"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "cpf": "{{request.pathSegments.[1]}}",
+      "score": 750,
+      "classification": "LOW_RISK"
+    },
+    "transformers": [
+      "response-template"
+    ]
+  }
+}

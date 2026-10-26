@@ -1,4 +1,4 @@
-# Infra do workload `be-cep-api` (Terraform)
+# Infra do workload `be-api` (Terraform)
 
 Gerado para a cloud selecionada: **aws** (declarada no `project.yaml`).
 Referencia o módulo do provider para o `kind=api` (tfKind=`api`).
@@ -12,14 +12,14 @@ Em dev a cloud é emulada pelo **floci**; aqui é o provisionamento de **produç
 ```bash
 cd infra/aws
 terraform init
-terraform plan -var="image=<registry>/be-cep-api:<tag>"
+terraform plan -var="image=<registry>/be-api:<tag>"
 ```
 
 Só a cloud selecionada é gerada (sem infra morta). Para **portar para outra cloud**
 (remove a atual e gera a nova — a intenção no `project.yaml` não muda, só o adapter):
 
 ```bash
-make switch-cloud NAME=be-cep-api CLOUD=<aws|gcp|azure>
+make switch-cloud NAME=be-api CLOUD=<aws|gcp|azure>
 ```
 
 ## Recursos de dados (banco/fila/cache) — Terraform SEPARADO

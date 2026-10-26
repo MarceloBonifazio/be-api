@@ -1,4 +1,4 @@
-# Terraform do workload `be-cep-api` na AWS. GERADO pela plataforma.
+# Terraform do workload `be-api` na AWS. GERADO pela plataforma.
 # A INTENÇÃO (project.yaml: kind=api) escolhe o módulo: tfKind=api.
 #   api → ECS Fargate + ALB   ·   spa → S3 + CloudFront
 # ► cloud PRIMÁRIA deste workload.
@@ -13,7 +13,7 @@ provider "aws" {
   region = var.region
 }
 
-module "be-cep-api" {
+module "be-api" {
   source = "../../../../providers/aws/modules/api"
 
   name   = var.name
@@ -24,7 +24,7 @@ module "be-cep-api" {
 }
 
 output "endpoint" {
-  value = module.be-cep-api.endpoint
+  value = module.be-api.endpoint
 }
 # NOTA: recursos de dados (banco/fila/cache) NÃO nascem aqui — ficam em ./resources/
 # (Terraform à parte, estado próprio). Aplique só se quiser que a plataforma os crie;

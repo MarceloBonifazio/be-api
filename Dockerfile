@@ -11,7 +11,7 @@
 # 18 .prod).
 
 # ═════════ dev ═════════
-# DEV (be-cep-api · Spring Boot Java, scaffold oficial) — `gradle bootRun`. Source por bind-mount.
+# DEV (be-api · Spring Boot Java, scaffold oficial) — `./gradlew bootRun`. Source por bind-mount.
 # O app foi gerado pelo Spring Initializr (Gradle/Java): gradlew presente, deps NAO baixadas.
 # Usamos o gradle do sistema (imagem gradle:8-jdk21) em vez do wrapper para evitar o download do wrapper.
 # gradle:8-jdk21 e Debian e NAO tem cliente HTTP -> instalamos curl para o fallback de token do vault.
@@ -19,13 +19,14 @@ FROM gradle:8-jdk21 AS dev
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY . .
+RUN chmod +x gradlew
 ENV PORT=4000
 EXPOSE 4000
 ENTRYPOINT ["sh", "/app/scripts/vault-entrypoint.sh"]
-CMD ["sh", "-c", "gradle bootRun --args=\"--server.port=$PORT\""]
+CMD ["sh", "-c", "./gradlew bootRun --args=\"--server.port=$PORT\""]
 
 # ═════════ produção ═════════
-# PROD (be-cep-api · Spring Boot Java) — jar bootJar executado com java -jar. Multi-stage.
+# PROD (be-api · Spring Boot Java) — jar bootJar executado com java -jar. Multi-stage.
 # Gerado pelo Spring Initializr (Gradle/Java): gradlew presente, deps NAO baixadas.
 # Stage runner e eclipse-temurin:21-jre-alpine (Debian, sem cliente HTTP) -> instalamos curl para o fallback do vault.
 # Os arquivos do vault (vault-entrypoint.sh, vault-load.*) sao copiados explicitamente para /app no runner,
@@ -35,7 +36,7 @@ CMD ["sh", "-c", "gradle bootRun --args=\"--server.port=$PORT\""]
 FROM gradle:8-jdk21 AS build
 WORKDIR /app
 COPY . .
-RUN gradle bootJar
+RUN chmod +x gradlew && ./gradlew bootJar --no-daemon
 
 # --- runner stage ---
 FROM eclipse-temurin:21-jre-alpine AS runner

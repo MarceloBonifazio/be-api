@@ -1,6 +1,6 @@
 package com.platform;
 
-// Métricas do `be-cep-api` — contrato da plataforma:
+// Métricas do `be-api` — contrato da plataforma:
 //   http_requests_total            (counter)    total de requests
 //   http_request_duration_seconds  (histogram)  duração, nos buckets padrão do Prometheus
 // mais as métricas de runtime da JVM (heap, threads).
@@ -75,7 +75,7 @@ public final class Metrics {
 
     /** Corpo do /metrics: RED + runtime da JVM. */
     public static String render() {
-        final String svc = "service=\"be-cep-api\"";
+        final String svc = "service=\"be-api\"";
         StringBuilder sb = new StringBuilder(1024);
 
         List<Map.Entry<String, Series>> entries = new ArrayList<>(STORE.entrySet());

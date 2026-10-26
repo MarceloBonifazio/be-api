@@ -28,7 +28,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
       - name: gate — artefato $TAG existe na cloud?
         run: |
-          aws ecr describe-images --repository-name "be-cep-api" --image-ids imageTag="$TAG" >/dev/null
+          aws ecr describe-images --repository-name "be-api" --image-ids imageTag="$TAG" >/dev/null
 
   test:
     runs-on: ubuntu-latest
@@ -56,7 +56,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - run: gradle test jacocoTestReport --no-daemon
+      - run: sh ./gradlew test jacocoTestReport --no-daemon
       - name: cache do SonarScanner (plugins/analyzers — evita re-download a cada análise)
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: actions/cache@v4

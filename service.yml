@@ -1,10 +1,10 @@
-# Fragmento de compose do `be-cep-api` (api · java/spring) — DEV. GERADO.
+# Fragmento de compose do `be-api` (api · java/spring) — DEV. GERADO.
 # Auto-registro no Traefik via labels.
 # Composto com a base por `compose.gen.mjs` (make up). Rede `platform` vem da base.
 services:
-  be-cep-api:
+  be-api:
     build:
-      context: ./projects/be-cep-api
+      context: ./projects/be-api
       # UM Dockerfile, dois targets. O de prod está no service.prod.yml, que sobrepõe este bloco.
       # Eram dois arquivos que divergiam em silêncio — correção num não chegava no outro.
       dockerfile: Dockerfile
@@ -14,48 +14,56 @@ services:
     restart: unless-stopped
     environment:
       PORT: "4000"
+      JAVA_TOOL_OPTIONS: "-XX:ActiveProcessorCount=2 -Xmx384m"
       APP_ENV: development
       # Hot-reload sobre bind-mount (polling — robusto no Docker Desktop/macOS).
       CHOKIDAR_USEPOLLING: "true"
       WATCHFILES_FORCE_POLLING: "true"
       DOTNET_USE_POLLING_FILE_WATCHER: "true"
-      # Segredos: namespace dedicado no Vault (secret/be-cep-api/dev).
+      # Segredos: namespace dedicado no Vault (secret/be-api/dev).
       VAULT_ADDR: "http://vault:8200"
       VAULT_TOKEN: "${VAULT_TOKEN:-dev-root-token}"
-      VAULT_SECRET_PATH: "secret/data/be-cep-api/dev"
+      VAULT_SECRET_PATH: "secret/data/be-api/dev"
       # Cloud local: floci-aws (imagem/porta próprias por cloud). "Tudo via floci" em dev.
       # Envs específicas da cloud: AWS SDK · Azure connection string · GCP emulator hosts.
       AWS_ENDPOINT_URL: "http://floci-aws:4566"
       AWS_REGION: "${AWS_REGION:-sa-east-1}"
       AWS_ACCESS_KEY_ID: "test"
       AWS_SECRET_ACCESS_KEY: "test"
-      DATABASE_URL: "postgres://app:app@be-cep-api-postgres:5432/app"
+      JDBC_DATABASE_URL: "jdbc:postgresql://be-api-postgres:5432/app"
+      DB_USER: app
+      DB_PASSWORD: app
+      OIDC_ISSUER: "${OIDC_ISSUER:-http://localhost:8088/auth/realms/nucleus}"
+      OIDC_JWKS: "${OIDC_JWKS:-http://keycloak:8080/auth/realms/nucleus/protocol/openid-connect/certs}"
+      SCORE_URL: "${SCORE_URL:-http://score:8080}"
+      KAFKA_STATUS_TOPIC: "be-api.status-commands"
+      DATABASE_URL: "postgres://app:app@be-api-postgres:5432/app"
       KAFKA_BROKERS: "redpanda:9092"
 
       # Stream — broker do runtime (kafka); destino/grupo do workload.
-      KAFKA_TOPIC: "be-cep-api.events"
-      KAFKA_GROUP: "be-cep-api"
+      KAFKA_TOPIC: "be-api.events"
+      KAFKA_GROUP: "be-api"
     volumes:
-      - ./projects/be-cep-api:/app          # hot-reload (bind-mount do source)
+      - ./projects/be-api:/app          # hot-reload (bind-mount do source)
       - /app/target                 # preserva deps/artefatos da imagem
     networks: [platform]
     depends_on:
       # O app só sobe depois de o tópico/fila existirem: senão o cliente cria o
       # tópico por auto-create com 1 partição e a configuração explícita se perde.
-      be-cep-api-provision: { condition: service_completed_successfully }
-      redpanda: { condition: service_started }
+      be-api-provision: { condition: service_completed_successfully }
+      redpanda: { condition: service_healthy }
 
-      be-cep-api-postgres: { condition: service_healthy }  # espera o backend de dados ficar pronto
+      be-api-postgres: { condition: service_healthy }  # espera o backend de dados ficar pronto
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=platform"
-      # API HTTP em /api/be-cep-api (strip → app vê "/")
-      - "traefik.http.routers.be-cep-api.rule=PathPrefix(`/api/be-cep-api`)"
-      - "traefik.http.middlewares.be-cep-api-strip.stripprefix.prefixes=/api/be-cep-api"
-      - "traefik.http.routers.be-cep-api.middlewares=be-cep-api-strip"
-      - "traefik.http.routers.be-cep-api.entrypoints=web"
-      - "traefik.http.routers.be-cep-api.service=be-cep-api"
-      - "traefik.http.services.be-cep-api.loadbalancer.server.port=4000"
+      # API HTTP em /api/be-api (strip → app vê "/")
+      - "traefik.http.routers.be-api.rule=PathPrefix(`/api/be-api`)"
+      - "traefik.http.middlewares.be-api-strip.stripprefix.prefixes=/api/be-api"
+      - "traefik.http.routers.be-api.middlewares=be-api-strip"
+      - "traefik.http.routers.be-api.entrypoints=web"
+      - "traefik.http.routers.be-api.service=be-api"
+      - "traefik.http.services.be-api.loadbalancer.server.port=4000"
   # ── Provisionamento dos recursos deste workload ────────────────────────────────────────────────
   # Cria tópico Kafka, fila SQS e tópico SNS ANTES de o app subir, e termina. Idempotente.
   #
@@ -63,7 +71,7 @@ services:
   # redpanda (que dá SEMPRE 1 partição — sem paralelismo no consumer-group e sem ordenação real por
   # chave — e transforma erro de digitação em tópico novo, em silêncio), e a fila/tópico da cloud só
   # existiam se o código do app os criasse.
-  be-cep-api-provision:
+  be-api-provision:
     image: redpandadata/redpanda:v24.2.7
     user: root
     restart: "no"
@@ -74,21 +82,25 @@ services:
     command:
       - |
         set -e
-        rpk topic create be-cep-api.events -p 3 --brokers redpanda:9092 || true
-        echo "topico be-cep-api.events pronto (3 particoes)"
+        for topic in be-api.events be-api.status-commands be-api.status-commands.DLT; do
+          rpk topic describe "$$topic" --brokers redpanda:9092 >/dev/null 2>&1 || rpk topic create "$$topic" -p 3 --brokers redpanda:9092
+        done
+        echo "Topicos do be-api confirmados."
     networks: [platform]
     depends_on:
-      redpanda: { condition: service_started }
+      redpanda: { condition: service_healthy }
 
-  # Backend de dados DEDICADO do recurso (be-cep-api-postgres) — DEV. Efêmero (dados recriados no make down/up);
+  # Backend de dados DEDICADO do recurso (be-api-postgres) — DEV. Efêmero (dados recriados no make down/up);
   # em prod o recurso vem do Terraform/Vault. O app espera ficar `healthy` (depends_on acima).
-  be-cep-api-postgres:
+  be-api-postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: "app"
       POSTGRES_PASSWORD: "app"
       POSTGRES_DB: "app"
+    volumes:
+      - nucleus-customers:/var/lib/postgresql/data
     networks: [platform]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d app"]
@@ -98,10 +110,41 @@ services:
       start_period: 5s
 
   # Dashboard + alertas/SLOs do workload no Grafana (provisionados a partir do REPO do workload:
-  # projects/be-cep-api/observability/). Merge no service `grafana` da base → o provider "workloads"
-  # carrega o dashboard como folder "be-cep-api" (recarrega ao editar, 10s); o alerts.yaml entra no
+  # projects/be-api/observability/). Merge no service `grafana` da base → o provider "workloads"
+  # carrega o dashboard como folder "be-api" (recarrega ao editar, 10s); o alerts.yaml entra no
   # unified-alerting provisioning como regras na folder "workloads".
   grafana:
     volumes:
-      - ./projects/be-cep-api/observability:/workload-dashboards/be-cep-api:ro
-      - ./projects/be-cep-api/observability/alerts.yaml:/etc/grafana/provisioning/alerting/be-cep-api.yaml:ro
+      - ./projects/be-api/observability:/workload-dashboards/be-api:ro
+      - ./projects/be-api/observability/alerts.yaml:/etc/grafana/provisioning/alerting/be-api.yaml:ro
+
+  keycloak:
+    restart: unless-stopped
+    image: quay.io/keycloak/keycloak:26.2.5
+    command: [start-dev, --import-realm, --http-relative-path=/auth, --proxy-headers=xforwarded]
+    environment:
+      JAVA_OPTS_APPEND: "-XX:ActiveProcessorCount=2"
+      JAVA_OPTS_KC_HEAP: "-Xms64m -Xmx384m"
+      KC_BOOTSTRAP_ADMIN_USERNAME: operator
+      KC_BOOTSTRAP_ADMIN_PASSWORD: operator-dev
+      KC_HOSTNAME: http://localhost:8088/auth
+    volumes:
+      - ./projects/be-api/dev/keycloak:/opt/keycloak/data/import:ro
+      - nucleus-identity:/opt/keycloak/data
+    networks: [platform]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform
+      - traefik.http.routers.nucleus-identity.rule=PathPrefix(`/auth`)
+      - traefik.http.routers.nucleus-identity.entrypoints=web
+      - traefik.http.services.nucleus-identity.loadbalancer.server.port=8080
+  score:
+    restart: unless-stopped
+    image: wiremock/wiremock:3.12.1
+    command: [--global-response-templating]
+    volumes:
+      - ./projects/be-api/dev/score:/home/wiremock:ro
+    networks: [platform]
+volumes:
+  nucleus-identity:
+  nucleus-customers:

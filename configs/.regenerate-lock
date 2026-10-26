@@ -1,4 +1,4 @@
-# Breaker de regeneração do `be-cep-api` — VERSIONE este arquivo.
+# Breaker de regeneração do `be-api` — VERSIONE este arquivo.
 #
 # Partes deste repo são GERADAS a partir do project.yaml e podem ser reescritas por quem rodar
 # `make regenerate-ci` / `make regenerate-obs` / `make add-resource` na plataforma. Se o time customizou algum desses
@@ -27,5 +27,5 @@
 # `ARGS=--force`, que registra o aviso no log.
 
 # observability
-# ci
-# compose
+ci
+compose

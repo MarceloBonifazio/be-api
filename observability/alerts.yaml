@@ -1,8 +1,8 @@
-# Alertas/SLOs do workload be-cep-api — VIVEM NO REPO do workload (observability/alerts.yaml).
+# Alertas/SLOs do workload be-api — VIVEM NO REPO do workload (observability/alerts.yaml).
 # Unified alerting do Grafana (provisioning v1): o _service.yml monta este arquivo em
-# /etc/grafana/provisioning/alerting/be-cep-api.yaml e o Grafana carrega como regras na folder "workloads".
+# /etc/grafana/provisioning/alerting/be-api.yaml e o Grafana carrega como regras na folder "workloads".
 #
-# GERADO: `make regenerate-obs NAME=be-cep-api` reescreve este arquivo. Para customizar, trave com o
+# GERADO: `make regenerate-obs NAME=be-api` reescreve este arquivo. Para customizar, trave com o
 # configs/.regenerate-lock (ver README do workload) — senão o próximo regenerate sobrescreve.
 #
 # Os thresholds saem do bloco `observability.slo` do project.yaml (fonte da verdade) e as expressões
@@ -11,21 +11,21 @@
 apiVersion: 1
 groups:
   - orgId: 1
-    name: be-cep-api-slo
+    name: be-api-slo
     folder: workloads
     interval: 1m
     rules:
       # SLO de latência: p95 acima do alvo declarado (500ms) por 5m.
       # Fonte: histograma do /metrics do app.
-      - uid: wl-be-cep-api-p95
-        title: "be-cep-api · p95 de latência > 500ms (SLO)"
+      - uid: wl-be-api-p95
+        title: "be-api · p95 de latência > 500ms (SLO)"
         condition: C
         for: 5m
         labels:
           severity: warning
-          workload: "be-cep-api"
+          workload: "be-api"
         annotations:
-          summary: "p95 de latência do be-cep-api acima de 500ms nos últimos 5m (alvo do SLO)"
+          summary: "p95 de latência do be-api acima de 500ms nos últimos 5m (alvo do SLO)"
         data:
           - refId: A
             relativeTimeRange: { from: 600, to: 0 }
@@ -34,7 +34,7 @@ groups:
               refId: A
               instant: true
               editorMode: code
-              expr: "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"be-cep-api\"}[5m])))"
+              expr: "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"be-api\"}[5m])))"
           - refId: C
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: __expr__
@@ -47,15 +47,15 @@ groups:
       # Taxa de erro acima do que o SLO tolera: 99.9% de disponibilidade deixa
       # 0.1% de 5xx. Queimar mais que isso por 5m consome o error budget
       # (43min em 30d) mais rápido do que a janela repõe.
-      - uid: wl-be-cep-api-5xx
-        title: "be-cep-api · taxa de 5xx > 0.1% (SLO)"
+      - uid: wl-be-api-5xx
+        title: "be-api · taxa de 5xx > 0.1% (SLO)"
         condition: C
         for: 5m
         labels:
           severity: critical
-          workload: "be-cep-api"
+          workload: "be-api"
         annotations:
-          summary: "5xx do be-cep-api acima de 0.1% nos últimos 5m — consumindo o error budget"
+          summary: "5xx do be-api acima de 0.1% nos últimos 5m — consumindo o error budget"
         data:
           - refId: A
             relativeTimeRange: { from: 600, to: 0 }
@@ -64,7 +64,7 @@ groups:
               refId: A
               instant: true
               editorMode: code
-              expr: "sum(rate(traefik_traefik_service_requests_total{service=~\"be-cep-api@.*\",code=~\"5..\"}[5m])) / clamp_min(sum(rate(traefik_traefik_service_requests_total{service=~\"be-cep-api@.*\"}[5m])), 0.001)"
+              expr: "sum(rate(traefik_traefik_service_requests_total{service=~\"be-api@.*\",code=~\"5..\"}[5m])) / clamp_min(sum(rate(traefik_traefik_service_requests_total{service=~\"be-api@.*\"}[5m])), 0.001)"
           - refId: C
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: __expr__

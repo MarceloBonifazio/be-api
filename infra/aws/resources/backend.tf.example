@@ -6,7 +6,7 @@
 # Sem este arquivo (default), o state é LOCAL (terraform.tfstate).
 terraform {
   backend "s3" {
-    key     = "be-cep-api/aws-resources.tfstate"
+    key     = "be-api/aws-resources.tfstate"
     encrypt = true
   }
 }

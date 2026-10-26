@@ -1,20 +1,20 @@
 # Manifesto do workload — fonte da verdade da INTENÇÃO. A plataforma traduz
-# isto para a implementação na cloud (projects/be-cep-api/infra/aws).
-name: be-cep-api
+# isto para a implementação na cloud (projects/be-api/infra/aws).
+name: be-api
 kind: api                  # api | spa | worker | serverless | cron | queue-consumer | static
 language: java
 framework: spring        # framework escolhido (ou "cru")
 runtime: java
 protocols: [http, stream]   # http | grpc | graphql | websocket (composição da API)
 port: 4000
-route: be-cep-api                # roteamento local (Traefik): /api/be-cep-api
+route: be-api                # roteamento local (Traefik): /api/be-api
 cloud:
   provider: aws           # aws | azure | gcp
 
 deployment:
   exposure: public
   scaling: { min: 1, max: 4 }
-# Sizing p/ estimativa de custo (`make cost`) — editável; atualize com `make sizing NAME=be-cep-api ...`.
+# Sizing p/ estimativa de custo (`make cost`) — editável; atualize com `make sizing NAME=be-api ...`.
 sizing:
   computeSize: small       # small | medium | large (vCPU/GB do compute)
   prodReplicas: 2     # réplicas em prod
@@ -23,7 +23,7 @@ sizing:
   budgetStaging: 0
   budgetProd: 0
 
-secrets: vault://be-cep-api        # namespace dedicado: secret/be-cep-api/<env>
+secrets: vault://be-api        # namespace dedicado: secret/be-api/<env>
 
 # Recursos (banco/fila/cache) — provisionados pelo floci em dev, Terraform em prod.
 resources: [postgres, kafka]
@@ -31,7 +31,7 @@ resources: [postgres, kafka]
 observability:
   enabled: true
   # SLO do workload — FONTE DA VERDADE do cartão SLI/SLO/Error Budget (observability/dashboard.json)
-  # e dos alertas (observability/alerts.yaml). Editou aqui? rode `make regenerate-obs NAME=be-cep-api`
+  # e dos alertas (observability/alerts.yaml). Editou aqui? rode `make regenerate-obs NAME=be-api`
   # p/ o dashboard e os alertas acompanharem. `window` é a janela do error budget: com 30d e
   # availability 99.9 o budget é 43min ((1 - 0.999) × 30 × 24 × 60).
   slo:
@@ -43,12 +43,12 @@ observability:
 # ao `make regenerate-*` (que reescreve o compose a partir deste manifesto) e fica legível para quem
 # procura "quem publica/consome o quê" sem abrir o código de 11 linguagens diferentes.
 #
-# O tópico é PRÓPRIO por padrão (be-cep-api.events). Aponte para o de outro workload quando este consome
+# O tópico é PRÓPRIO por padrão (be-api.events). Aponte para o de outro workload quando este consome
 # o que aquele produz — é o caso normal de um stream-consumer.
 stream:
-  topic: be-cep-api.events
+  topic: be-api.events
   partitions: 3
-  group: be-cep-api
+  group: be-api
 
 # Documentação de contratos — descoberta pelo Portal (agrega os /openapi.json de todos os serviços).
 # O scaffold entrega o piso ESTÁTICO (contrato operacional) em /openapi.json + UI /docs (só dev).
@@ -93,7 +93,7 @@ governance:
 #
 #   env:
 #     JWT_SECRET: "${JWT_SECRET:-dev-change-me}"
-#     DATABASE_URL: "${DATABASE_URL:-postgres://app:app@be-cep-api-postgres:5432/app}"
+#     DATABASE_URL: "${DATABASE_URL:-postgres://app:app@be-api-postgres:5432/app}"
 #
 # NÃO declare `PORT`, `GRPC_PORT`, `BASE_PATH`, `APP_ENV`, `NODE_ENV`, `VAULT_*` nem `KAFKA_TOPIC`:
 # o template as escreve com valor fixo, e o gerador recusa a colisão em vez de gerar YAML duplicado.
@@ -108,4 +108,14 @@ environments:
   dev:  { provisioner: floci }
   prod: { provisioner: terraform }
 domains:
-  - be-cep-api.local
+  - be-api.local
+
+env:
+  JAVA_TOOL_OPTIONS: "-XX:ActiveProcessorCount=2 -Xmx384m"
+  JDBC_DATABASE_URL: "${JDBC_DATABASE_URL:-jdbc:postgresql://be-api-postgres:5432/app}"
+  DB_USER: "${DB_USER:-app}"
+  DB_PASSWORD: "${DB_PASSWORD:-app}"
+  OIDC_ISSUER: "${OIDC_ISSUER:-http://localhost:8088/auth/realms/nucleus}"
+  OIDC_JWKS: "${OIDC_JWKS:-http://keycloak:8080/auth/realms/nucleus/protocol/openid-connect/certs}"
+  SCORE_URL: "${SCORE_URL:-http://score:8080}"
+  KAFKA_STATUS_TOPIC: "be-api.status-commands"

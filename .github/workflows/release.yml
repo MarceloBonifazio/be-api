@@ -1,6 +1,6 @@
 # GERADO pelo create-project — NÃO editar à mão (regenere via plataforma).
 # Release no merge na `main`: release-please calcula a versão (prioridade dos Conventional
-# Commits), bumpa o arquivo de versão (maven) e cria tag + changelog; ao sair um
+# Commits), bumpa o arquivo de versão (version.txt) e cria tag + changelog; ao sair um
 # release, PUBLICA o artefato (imagem no registry) na cloud aws.
 # Fluxo completo: docs/ci-cd.md do orquestrador.
 name: release
@@ -25,7 +25,7 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: rp
         with:
-          release-type: maven
+          release-type: simple
           # token: ${{ secrets.RELEASE_PLEASE_TOKEN }}  # PAT p/ o release disparar outros workflows
 
   test:
@@ -54,7 +54,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - run: gradle test jacocoTestReport --no-daemon
+      - run: sh ./gradlew test jacocoTestReport --no-daemon
       - name: cache do SonarScanner (plugins/analyzers — evita re-download a cada análise)
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: actions/cache@v4
@@ -95,6 +95,6 @@ jobs:
       - uses: aws-actions/amazon-ecr-login@v2
       - name: build + push (ECR)
         run: |
-          IMG="${{ vars.AWS_ECR_REGISTRY }}/be-cep-api"
+          IMG="${{ vars.AWS_ECR_REGISTRY }}/be-api"
           docker build -f Dockerfile --target runner -t "$IMG:$VERSION" -t "$IMG:latest" .
           docker push "$IMG:$VERSION" && docker push "$IMG:latest"

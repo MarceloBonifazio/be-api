@@ -1,137 +1,75 @@
-# Compose STANDALONE do `be-cep-api` (api · java/spring) — GERADO.
-#
-#   docker compose up            ← na raiz DESTE repo, sem a plataforma
-#
-# Sobe o workload com o domínio dele e mais nada: Vault · floci-aws (cloud local) · kafka · os recursos declarados em `resources:`.
-#
-# QUEM MANDA QUANDO: a plataforma NÃO lê este arquivo. Lá o compose é
-# `docker-compose.base.yml` + `service.yml` (ver compose.gen.mjs), e é o da plataforma que vale —
-# os dois nunca são carregados juntos, então não há merge nem conflito. Rodando pela plataforma o
-# workload ganha Traefik, observabilidade e os emuladores compartilhados; aqui ganha só o essencial.
-#
-# O que muda em relação ao `service.yml` (e por quê):
-#   • sem Traefik → a porta sai publicada no host (http://localhost:4000), em vez de rota no proxy
-#   • sem Prometheus/Grafana/Loki → o /metrics continua exposto, só não há quem raspe
-#   • rede própria deste projeto, em vez da rede compartilhada `platform`
-#   • Vault semeado aqui mesmo (a plataforma semeia a partir do platform.yaml, que não existe aqui)
-#   • um emulador só (floci-aws), não os três da base
-# `name:` fixa o nome do projeto compose → containers/rede próprios, sem colidir com a plataforma.
-name: be-cep-api
-
+name: nucleus-customers
 services:
-  be-cep-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: dev
-    restart: unless-stopped
-    ports:
-      # Publicado direto: sem Traefik na frente, este é o acesso ao workload.
-      - "4000:4000"
-      - "4000:4000"      # listener gRPC (h2c)
+  gateway:
+    image: traefik:v3.3
+    command:
+      - --providers.file.filename=/etc/traefik/routes.yml
+      - --entrypoints.web.address=:8088
+    ports: ["8088:8088"]
+    volumes: ["./dev/routes.yml:/etc/traefik/routes.yml:ro"]
+    depends_on: [be-api, fe-painel, keycloak]
+  be-api:
+    build: { context: ., target: runner }
     environment:
       PORT: "4000"
-      APP_ENV: development
-      CHOKIDAR_USEPOLLING: "true"
-      WATCHFILES_FORCE_POLLING: "true"
-      DOTNET_USE_POLLING_FILE_WATCHER: "true"
-      VAULT_ADDR: "http://vault:8200"
-      VAULT_TOKEN: "${VAULT_TOKEN:-dev-root-token}"
-      VAULT_SECRET_PATH: "secret/data/be-cep-api/dev"
-      AWS_ENDPOINT_URL: "http://floci-aws:4566"
-      AWS_REGION: "${AWS_REGION:-sa-east-1}"
-      AWS_ACCESS_KEY_ID: "test"
-      AWS_SECRET_ACCESS_KEY: "test"
-      DATABASE_URL: "postgres://app:app@be-cep-api-postgres:5432/app"
-      KAFKA_BROKERS: "redpanda:9092"
-      KAFKA_TOPIC: "be-cep-api.events"
-      KAFKA_GROUP: "be-cep-api"
-    volumes:
-      # `.` e não ./projects/<name>: aqui a raiz do compose é a raiz do próprio workload.
-      - .:/app
-      - /app/target
+      JDBC_DATABASE_URL: jdbc:postgresql://postgres:5432/app
+      DB_USER: app
+      DB_PASSWORD: app
+      KAFKA_BROKERS: redpanda:9092
+      OIDC_ISSUER: http://localhost:8088/auth/realms/nucleus
+      OIDC_JWKS: http://keycloak:8080/auth/realms/nucleus/protocol/openid-connect/certs
+      SCORE_URL: http://score:8080
     depends_on:
-      vault-seed: { condition: service_completed_successfully }
-      redpanda: { condition: service_started }
-
-      be-cep-api-postgres: { condition: service_healthy }
-
-  # Vault em modo dev (in-memory: zera a cada restart, e o seed abaixo repõe).
-  vault:
-    image: hashicorp/vault:1.18
-    restart: unless-stopped
-    cap_add: [IPC_LOCK]
-    environment:
-      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN:-dev-root-token}
-      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
-      VAULT_ADDR: "http://0.0.0.0:8200"
-
-  # Semeia secret/be-cep-api/dev com os placeholders do contrato (PORT + APP_ENV) — o MESMO conteúdo que
-  # o seed da plataforma grava. Roda uma vez e sai; o app espera a conclusão (depends_on acima) para
-  # não subir antes do namespace existir. Troque pelos segredos reais do workload.
-  vault-seed:
-    image: hashicorp/vault:1.18
-    depends_on: [vault]
-    restart: "no"
-    environment:
-      VAULT_ADDR: "http://vault:8200"
-      VAULT_TOKEN: ${VAULT_TOKEN:-dev-root-token}
-    entrypoint:
-      - sh
-      - -c
-      - |
-        i=0
-        until vault status >/dev/null 2>&1; do
-          i=$$((i + 1))
-          [ "$$i" -gt 60 ] && { echo "[vault-seed] vault não subiu em 60s" >&2; exit 1; }
-          sleep 1
-        done
-        vault kv get secret/be-cep-api/dev >/dev/null 2>&1 \
-          || vault kv put secret/be-cep-api/dev PORT="4000" APP_ENV=development >/dev/null
-        echo "[vault-seed] secret/be-cep-api/dev pronto"
-
-  # Cloud local do workload (aws). Não é LocalStack: cada cloud tem binário e porta próprios,
-  # e o emulador roda todos os serviços dela. Os recursos que o workload declara são criados pelo
-  # `make create` na plataforma — em standalone, crie-os pelo SDK/CLI apontando p/ este endpoint.
-  floci-aws:
-    image: floci/floci:latest       # :4566
-    restart: unless-stopped
-
-  # Broker Kafka-compatível (Redpanda dev, single-node). Tópicos criados on-demand.
-  # Sobe tanto para o kind `stream-consumer` (broker: kafka) quanto para quem declara o RECURSO
-  # `kafka` — um produtor de eventos, por exemplo. Um flag só (needsStandaloneKafka) porque os dois
-  # querem o MESMO serviço, e duas condições emitiriam `redpanda:` duplicado.
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      keycloak: { condition: service_started }
+  fe-painel:
+    build: { context: ../fe-painel, target: runner }
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: app, POSTGRES_PASSWORD: app, POSTGRES_DB: app }
+    volumes: ["customer-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U app -d app"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
   redpanda:
     image: redpandadata/redpanda:v24.2.7
-    restart: unless-stopped
+    command: [redpanda, start, --mode, dev-container, --smp, "1", --memory, 512M, --reserve-memory, 0M, --node-id, "0", --kafka-addr, "PLAINTEXT://0.0.0.0:9092", --advertise-kafka-addr, "PLAINTEXT://redpanda:9092"]
+    volumes: ["kafka-data:/var/lib/redpanda/data"]
+    healthcheck:
+      test: [CMD, rpk, cluster, health, --exit-when-healthy]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  kafka-init:
+    image: redpandadata/redpanda:v24.2.7
+    depends_on:
+      redpanda: { condition: service_healthy }
+    entrypoint: [/bin/sh, -ec]
     command:
-      - redpanda
-      - start
-      - --mode=dev-container
-      - --smp=1
-      - --default-log-level=warn
-      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
-      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
-      - --set
-      - redpanda.auto_create_topics_enabled=true
-    healthcheck:
-      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-
-  # Backend de dados dedicado do recurso `be-cep-api-postgres` — efêmero (dados vão embora no `down -v`).
-  # Em prod o recurso vem do Terraform, com credenciais no Vault.
-  be-cep-api-postgres:
-    image: postgres:16-alpine
+      - |
+        for topic in be-api.events be-api.status-commands be-api.status-commands.DLT; do
+          rpk topic describe "$$topic" --brokers redpanda:9092 >/dev/null 2>&1 || rpk topic create "$$topic" -p 3 --brokers redpanda:9092
+        done
+  keycloak:
     restart: unless-stopped
+    image: quay.io/keycloak/keycloak:26.2.5
+    command: [start-dev, --import-realm, --http-relative-path=/auth, --proxy-headers=xforwarded]
     environment:
-      POSTGRES_USER: "app"
-      POSTGRES_PASSWORD: "app"
-      POSTGRES_DB: "app"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d app"]
-      interval: 10s
-      timeout: 5s
-      retries: 15
-      start_period: 5s
+      JAVA_OPTS_APPEND: "-XX:ActiveProcessorCount=2"
+      JAVA_OPTS_KC_HEAP: "-Xms64m -Xmx384m"
+      KC_BOOTSTRAP_ADMIN_USERNAME: operator
+      KC_BOOTSTRAP_ADMIN_PASSWORD: operator-dev
+      KC_HOSTNAME: http://localhost:8088/auth
+    volumes: ["./dev/keycloak:/opt/keycloak/data/import:ro", "identity-data:/opt/keycloak/data"]
+  score:
+    restart: unless-stopped
+    image: wiremock/wiremock:3.12.1
+    command: [--global-response-templating]
+    volumes: ["./dev/score:/home/wiremock:ro"]
+volumes:
+  customer-data:
+  kafka-data:
+  identity-data:

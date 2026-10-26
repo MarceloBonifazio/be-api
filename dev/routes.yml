@@ -1,0 +1,26 @@
+http:
+  routers:
+    api:
+      rule: PathPrefix(`/api/be-api`)
+      service: api
+      middlewares: [strip-api]
+    frontend:
+      rule: PathPrefix(`/painel`)
+      service: frontend
+    identity:
+      rule: PathPrefix(`/auth`)
+      service: identity
+  middlewares:
+    strip-api:
+      stripPrefix:
+        prefixes: [/api/be-api]
+  services:
+    api:
+      loadBalancer:
+        servers: [{url: 'http://be-api:4000'}]
+    frontend:
+      loadBalancer:
+        servers: [{url: 'http://fe-painel:3000'}]
+    identity:
+      loadBalancer:
+        servers: [{url: 'http://keycloak:8080'}]

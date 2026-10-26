@@ -1,4 +1,4 @@
-# Recursos de dados do workload `be-cep-api` na AWS — Terraform SEPARADO do app.
+# Recursos de dados do workload `be-api` na AWS — Terraform SEPARADO do app.
 # Estado próprio (ver backend.tf.example). Aplique À PARTE, só quando quiser que a
 # plataforma crie estes recursos; NÃO é aplicado pelo deploy do app e um `destroy`
 # do app não os afeta. Em dev, o floci provê os equivalentes locais.

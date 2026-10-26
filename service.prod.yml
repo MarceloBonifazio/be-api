@@ -1,15 +1,15 @@
-# Fragmento de compose do `be-cep-api` (api) — PROD-like. GERADO.
+# Fragmento de compose do `be-api` (api) — PROD-like. GERADO.
 # Aplicado por cima do dev quando PLATFORM_ENV=prod: imagem `runner`, sem bind-mount.
 # Em PRODUÇÃO real, roteamento/escala/recursos vêm da cloud (Terraform em
-# projects/be-cep-api/infra/aws) — este override valida a imagem prod localmente.
+# projects/be-api/infra/aws) — este override valida a imagem prod localmente.
 services:
-  be-cep-api:
+  be-api:
     build:
-      context: ./projects/be-cep-api
+      context: ./projects/be-api
       # Mesmo Dockerfile do dev; muda só o target (imagem mínima, non-root, só artefatos).
       dockerfile: Dockerfile
       target: runner
     environment:
       APP_ENV: production
-      VAULT_SECRET_PATH: "secret/data/be-cep-api/prod"
+      VAULT_SECRET_PATH: "secret/data/be-api/prod"
     volumes: !reset []

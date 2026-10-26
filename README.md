@@ -1,80 +1,120 @@
-# be-cep-api · api · java/spring
-Gerado pela plataforma (`create-project`). Contrato mínimo:
-`Dockerfile` (targets `dev`/`runner`) · `project.yaml` · `.env.example`.
+# score — gestão de clientes
 
-- **Tipo:** api · **Linguagem:** java · **Framework:** spring
-- **Porta interna:** 4000 · **Protocolos:** `http` `stream` 
-- **HTTP:** http://localhost:8088/api/be-cep-api (strip de `/api/be-cep-api`) · health `/api/be-cep-api/health`
-- **Cloud:** aws (Terraform em `infra/aws`, kind `api`)
-- **Recursos (floci-aws):** `postgres` `kafka` 
-- **Segredos:** `secret/be-cep-api/<env>` no Vault
-- **Observabilidade:** dashboard e alertas em [`observability/`](observability/) · **SLO** 99.9% em 30d (error budget 43min) · p95 alvo 500ms
+Java 21 · Spring Boot 4.1 · Gradle Wrapper · PostgreSQL/JPA/Flyway · Kafka · OAuth2/JWT.
 
-```bash
-make up        # sobe este workload junto da plataforma
-curl http://localhost:8088/api/be-cep-api/health
-```
-## Subir sem a plataforma (`docker-compose.yml`)
+## Executar
 
-Este repo sobe sozinho. O [`docker-compose.yml`](docker-compose.yml) é **standalone**: traz o domínio
-deste workload e mais nada — Vault (já semeado com `secret/be-cep-api/dev`) · `floci-aws`, a cloud local · o broker `kafka` · os recursos declarados em `project.yaml`.
+Docker Compose é suficiente para rodar a solução completa. A partir deste diretório, com `../fe-painel` presente:
 
-```bash
-docker compose up            # aqui, na raiz deste repo — sem clonar a plataforma
-curl http://localhost:4000/health
+```sh
+docker compose up --build -d
 ```
 
-**Qual compose vale quando:** os dois nunca são carregados juntos, então não há merge nem conflito.
-A plataforma monta `docker-compose.base.yml` + [`service.yml`](service.yml) com `-f` explícito
-(`compose.gen.mjs`) e **ignora** este arquivo; é o da plataforma que manda no `make up`. Rodando por
-lá, o workload ganha Traefik (rota `/api/be-cep-api`), a
-observabilidade e os emuladores compartilhados. Aqui, ganha o mínimo para funcionar:
+Acesse **http://localhost:8088/painel/**. Login local: `admin` / `admin-dev` (USER + ADMIN) ou `user` / `user-dev` (somente USER). O primeiro boot baixa dependências e pode levar alguns minutos. Se a plataforma já estiver usando a porta 8088, use a integração Nucleus em vez de subir a stack standalone.
 
-| | plataforma (`make up`) | standalone (`docker compose up`) |
+Na raiz do Nucleus:
+
+```sh
+docker compose -f docker-compose.base.yml -f projects/be-api/service.yml -f projects/fe-painel/service.yml up --build -d
+```
+
+Para parar a stack standalone: `docker compose down`. Os volumes preservam os dados. As configurações de identidade são importadas apenas no primeiro boot do realm; mudanças no arquivo não substituem automaticamente um realm existente.
+
+## Arquitetura
+
+Um serviço de clientes com camadas HTTP, aplicação, JPA e adaptadores Kafka/Score. Keycloak é o servidor de identidade; a API é Resource Server JWT. Decisões e limites estão em `../../docs/customers-architecture.md` no orquestrador. O frontend é uma SPA separada e o Score é simulado por WireMock.
+
+POST grava cliente e evento na mesma transação (outbox). Um publicador periódico envia os eventos pendentes. O consumidor altera status e registra `eventId` na mesma transação, tolerando duplicatas. O sistema usa entrega pelo menos uma vez, sem transação distribuída.
+
+## Autenticação e autorização
+
+No painel, o login redireciona ao Keycloak usando Authorization Code + PKCE S256. O token fica em memória. A API exige assinatura válida, emissor, expiração e audiência `be-api` nas rotas `/customers`. USER consulta; ADMIN também escreve. As rotas técnicas `/health`, `/live`, `/version`, `/docs`, `/openapi.json` e `/actuator/**` são públicas.
+
+Para Postman/Insomnia configure OAuth 2.0 Authorization Code com PKCE:
+
+- Authorization URL: `http://localhost:8088/auth/realms/nucleus/protocol/openid-connect/auth`
+- Token URL: `http://localhost:8088/auth/realms/nucleus/protocol/openid-connect/token`
+- Client ID: `fe-painel`; sem client secret; PKCE S256; escopo `openid`.
+- Cadastre o callback exato da sua ferramenta no cliente do Keycloak pelo console `http://localhost:8088/auth/admin/` (operador local `operator` / `operator-dev`). Os callbacks iniciais permitem apenas o painel.
+
+Use o Access Token em `Authorization: Bearer <token>`. Não use ID Token. Fluxo de senha direta está desabilitado.
+
+## Endpoints
+
+Base: `http://localhost:8088/api/be-api`.
+
+| Método | Caminho | Perfil |
 |---|---|---|
-| acesso | `http://localhost:8088/api/be-cep-api` (Traefik) | `http://localhost:4000` (porta publicada) |
-| métricas | Prometheus raspa o `/metrics` | `/metrics` exposto, ninguém raspa |
-| rede | `platform`, compartilhada | própria deste projeto |
-| Vault | semeado do `platform.yaml` | semeado aqui pelo serviço `vault-seed` |
-| cloud local | os três emuladores da base | só `floci-aws` |
-Os recursos usam as **mesmas imagens e versões** da base da plataforma, de propósito: é o que faz o
-workload se comportar igual nos dois modos.
+| POST | `/customers` | ADMIN |
+| PUT | `/customers/{id}` | ADMIN |
+| DELETE | `/customers/{id}` | ADMIN |
+| GET | `/customers/{id}` | USER/ADMIN |
+| GET | `/customers?page=0&size=20&status=ACTIVE` | USER/ADMIN |
+| GET | `/customers/search?name=joao&page=0&size=20` | USER/ADMIN |
+| GET | `/customers/{id}/score` | USER/ADMIN |
+| GET | `/openapi.json`, `/docs`, `/version`, `/actuator/prometheus` | USER/ADMIN |
 
+CPF: 11 dígitos, sem pontuação, com dígitos verificadores válidos. CPF é único; e-mail não é único. Status: ACTIVE ou INACTIVE. Busca por nome ignora maiúsculas/minúsculas. Listagens são paginadas, com tamanho máximo 100 e ordenadas por ID decrescente.
 
-## Arquivos gerados e como travar (`configs/.regenerate-lock`)
-
-Parte deste repo é **gerada a partir do [`project.yaml`](project.yaml)** e pode ser reescrita quando
-alguém rodar um `make regenerate-*` na plataforma. É assim que uma mudança da plataforma (um recurso
-novo em `resources:`, um painel novo no dashboard) chega até aqui sem recriar o workload.
-
-| Área | Arquivos | Comando |
-|---|---|---|
-| `ci` | `.github/workflows/release.yml` · `deploy.yml` | `make regenerate-ci NAME=be-cep-api` |
-| `observability` | `observability/dashboard.json` · `observability/alerts.yaml` | `make regenerate-obs NAME=be-cep-api` |
-
-**Customizou algum deles?** Descomente a área correspondente no [`configs/.regenerate-lock`](configs/.regenerate-lock)
-(um por linha). O gerador passa a **pular este workload e avisar**, em vez de sobrescrever em silêncio:
-
-```bash
-# configs/.regenerate-lock
-observability      # trava dashboard.json e alerts.yaml
+```sh
+export TOKEN='<access-token>'
+curl -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'   -d '{"name":"João da Silva","cpf":"52998224725","email":"joao@example.com","status":"ACTIVE"}'   http://localhost:8088/api/be-api/customers
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8088/api/be-api/customers/1/score
 ```
 
-Para conferir o que está fora de dia sem escrever nada, use `ARGS=--check`; para sobrescrever mesmo
-travado, `ARGS=--force` (fica registrado no log).
-### SLO
-O SLO vive em `observability.slo` no [`project.yaml`](project.yaml) — **é a fonte da verdade**: alimenta
-o cartão SLI/SLO/Error Budget do dashboard e os thresholds dos alertas. Hoje: **99.9%
-em 30d** (error budget de **43min**), p95 alvo **500ms**.
-Mudou o alvo? Edite lá e rode `make regenerate-obs NAME=be-cep-api`.
+Erros: 400 dados inválidos, 401 token ausente/inválido, 403 perfil insuficiente, 404 cliente/Score inexistente, 409 CPF duplicado/conflito de atualização. Score: 502 resposta inválida/falha HTTP, 503 conexão indisponível, 504 timeout. Respostas de validação usam Problem Details e erros por campo.
 
-A disponibilidade é medida no **Traefik** (borda — o que o cliente vê); os quantis p50/p95/p99 vêm
-do **`/metrics` deste serviço** (`http_request_duration_seconds`, com label de rota).
-## Documentação da API (OpenAPI / Swagger)
+## Kafka
 
-O **contrato operacional** já vem documentado:
-- **`GET /api/be-cep-api/openapi.json`** — spec OpenAPI 3.1 (piso estático; sempre disponível).
-- **`GET /api/be-cep-api/docs`** — Swagger UI (Scalar) — **só dev/interno** (404 em produção).
+Tópicos locais com 3 partições:
 
-O spec fica em [`openapi.json`](openapi.json). Documente **as suas rotas** por cima — *design-first* (edite o `openapi.json`) ou, recomendado, *code-first* com a lib nativa do stack:
-> **spring:** `springdoc-openapi` (nativo Spring).
+- `be-api.events`: CUSTOMER_CREATED, com eventId, eventType, customerId e createdAt; chave = customerId.
+- `be-api.status-commands`: CUSTOMER_STATUS_CHANGE.
+- `be-api.status-commands.DLT`: mensagens inválidas ou com tentativas esgotadas.
+
+No diretório deste projeto, publique um comando na stack standalone:
+
+```sh
+printf '%s\n' '{"eventId":"cbca5352-22ad-48f2-aaf2-704735bc7737","eventType":"CUSTOMER_STATUS_CHANGE","customerId":1,"status":"INACTIVE"}' | docker compose exec -T redpanda rpk topic produce be-api.status-commands -k 1
+```
+
+No Nucleus, execute o mesmo comando usando os três arquivos `-f` acima. Repetir o mesmo eventId não aplica a alteração novamente. Eventos com erro transiente têm 3 retries espaçados em 2 segundos antes da DLT; comandos inválidos vão diretamente para DLT. Falha ao publicar na DLT não deve descartar o registro original. Para inspecionar: `docker compose exec redpanda rpk topic consume be-api.status-commands.DLT -n 1`.
+
+O publicador mantém eventos na outbox durante indisponibilidade do Kafka e tenta novamente a cada 2 segundos. O envio pode duplicar após falha entre ACK e commit; consumidores de eventos também devem ser idempotentes. O produtor de comandos deve usar customerId como chave. Recibos e outbox ainda não têm limpeza automática.
+
+## Configuração
+
+| Variável | Default local |
+|---|---|
+| PORT | 4000 |
+| JDBC_DATABASE_URL | jdbc:postgresql://be-api-postgres:5432/app |
+| DB_USER / DB_PASSWORD | app / app |
+| KAFKA_BROKERS | redpanda:9092 |
+| KAFKA_TOPIC | be-api.events |
+| KAFKA_STATUS_TOPIC | be-api.status-commands |
+| KAFKA_GROUP | be-api-status |
+| OIDC_ISSUER | http://localhost:8088/auth/realms/nucleus |
+| OIDC_JWKS | http://keycloak:8080/auth/realms/nucleus/protocol/openid-connect/certs |
+| SCORE_URL | http://score:8080 |
+| SCORE_CONNECT_TIMEOUT / SCORE_READ_TIMEOUT | 2s / 3s |
+| OUTBOX_DELAY | 2000 ms |
+
+No Nucleus, declare envs próprias em `project.yaml`. O `service.yml` customizado está protegido contra regeneração pelo lock do workload. Migrações Flyway são aplicadas no boot; Hibernate apenas valida o schema. O WireMock responde 750/LOW_RISK para CPFs de 11 dígitos; é uma simulação, não um cálculo real.
+
+## Testes
+
+JDK 21 instalado:
+
+```sh
+./gradlew test jacocoTestReport
+```
+
+Ou em container, com o cache e artefatos isolados:
+
+```sh
+docker run --rm -v "$PWD:/source:ro" -w /tmp/app gradle:8-jdk21 sh -ec 'cp -R /source/. .; sh ./gradlew test jacocoTestReport --no-daemon'
+```
+
+A suíte cobre CRUD, validação, autorização, outbox, idempotência e integração HTTP com servidor de teste. Testes de persistência usam H2 em modo PostgreSQL; a execução em containers verifica o PostgreSQL real. O frontend possui testes unitários e E2E de login com Keycloak.
+
+As credenciais e serviços em modo dev deste Compose são destinados apenas a desenvolvimento. O deploy real exige identidade com persistência/HTTPS e permissões de broker configuradas.
