@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "Nucleus Customers API",
+    "title": "orquestrador Customers API",
     "version": "0.0.1"
   },
   "servers": [
