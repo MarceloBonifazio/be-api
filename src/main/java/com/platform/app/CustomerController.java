@@ -13,9 +13,9 @@ import org.springframework.web.bind.annotation.*;
 @Validated
 public class CustomerController {
   private final CustomerService service;
-  private final ScoreClient scores;
+  private final ScoreGateway scores;
 
-  public CustomerController(CustomerService service, ScoreClient scores) {
+  public CustomerController(CustomerService service, ScoreGateway scores) {
     this.service = service;
     this.scores = scores;
   }

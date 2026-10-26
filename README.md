@@ -2,6 +2,12 @@
 
 Java 21 · Spring Boot 4.1 · Gradle Wrapper · PostgreSQL/JPA/Flyway · Kafka · OAuth2/JWT.
 
+## Requisitos
+
+- Docker Desktop/Engine com Compose v2;
+- Git e acesso às imagens Docker;
+- 6 GB de memória disponíveis para PostgreSQL, Kafka/Redpanda, Keycloak, WireMock e as aplicações.
+
 ## Executar
 
 Docker Compose é suficiente para rodar a solução completa. A partir deste diretório, com `../fe-painel` presente:
@@ -10,9 +16,9 @@ Docker Compose é suficiente para rodar a solução completa. A partir deste dir
 docker compose up --build -d
 ```
 
-Acesse **http://localhost:8088/painel/**. Login local: `admin` / `admin-dev` (USER + ADMIN) ou `user` / `user-dev` (somente USER). O primeiro boot baixa dependências e pode levar alguns minutos. Se a plataforma já estiver usando a porta 8088, use a integração Nucleus em vez de subir a stack standalone.
+Acesse **http://localhost:8088/painel/**. Login local: `admin` / `admin-dev` (USER + ADMIN) ou `user` / `user-dev` (somente USER). O primeiro boot baixa dependências e pode levar alguns minutos. Se a plataforma já estiver usando a porta 8088, use a stack standalone em vez de subir a stack standalone.
 
-Na raiz do Nucleus:
+Na raiz:
 
 ```sh
 docker compose -f docker-compose.base.yml -f projects/be-api/service.yml -f projects/fe-painel/service.yml up --build -d
@@ -22,7 +28,7 @@ Para parar a stack standalone: `docker compose down`. Os volumes preservam os da
 
 ## Arquitetura
 
-Um serviço de clientes com camadas HTTP, aplicação, JPA e adaptadores Kafka/Score. Keycloak é o servidor de identidade; a API é Resource Server JWT. Decisões e limites estão em `../../docs/customers-architecture.md` no orquestrador. O frontend é uma SPA separada e o Score é simulado por WireMock.
+Um serviço de clientes com camadas HTTP, aplicação, JPA e adaptadores Kafka/Score. Keycloak é o servidor de identidade; a API é Resource Server JWT. O frontend é uma SPA separada e o Score é simulado por WireMock.
 
 POST grava cliente e evento na mesma transação (outbox). Um publicador periódico envia os eventos pendentes. O consumidor altera status e registra `eventId` na mesma transação, tolerando duplicatas. O sistema usa entrega pelo menos uma vez, sem transação distribuída.
 
@@ -39,6 +45,10 @@ Para Postman/Insomnia configure OAuth 2.0 Authorization Code com PKCE:
 
 Use o Access Token em `Authorization: Bearer <token>`. Não use ID Token. Fluxo de senha direta está desabilitado.
 
+## Scalar e OpenAPI
+
+O contrato está em `openapi.json` e é servido em `/api/be-api/openapi.json`. A interface interativa Scalar está em http://localhost:8088/api/be-api/docs. No Scalar, use **Authorize** com `Bearer <access-token>` para testar as rotas do domínio.
+
 ## Endpoints
 
 Base: `http://localhost:8088/api/be-api`.
@@ -52,7 +62,7 @@ Base: `http://localhost:8088/api/be-api`.
 | GET | `/customers?page=0&size=20&status=ACTIVE` | USER/ADMIN |
 | GET | `/customers/search?name=joao&page=0&size=20` | USER/ADMIN |
 | GET | `/customers/{id}/score` | USER/ADMIN |
-| GET | `/openapi.json`, `/docs`, `/version`, `/actuator/prometheus` | USER/ADMIN |
+| GET | `/openapi.json`, `/docs`, `/version`, `/actuator/prometheus` | público |
 
 CPF: 11 dígitos, sem pontuação, com dígitos verificadores válidos. CPF é único; e-mail não é único. Status: ACTIVE ou INACTIVE. Busca por nome ignora maiúsculas/minúsculas. Listagens são paginadas, com tamanho máximo 100 e ordenadas por ID decrescente.
 
@@ -78,9 +88,13 @@ No diretório deste projeto, publique um comando na stack standalone:
 printf '%s\n' '{"eventId":"cbca5352-22ad-48f2-aaf2-704735bc7737","eventType":"CUSTOMER_STATUS_CHANGE","customerId":1,"status":"INACTIVE"}' | docker compose exec -T redpanda rpk topic produce be-api.status-commands -k 1
 ```
 
-No Nucleus, execute o mesmo comando usando os três arquivos `-f` acima. Repetir o mesmo eventId não aplica a alteração novamente. Eventos com erro transiente têm 3 retries espaçados em 2 segundos antes da DLT; comandos inválidos vão diretamente para DLT. Falha ao publicar na DLT não deve descartar o registro original. Para inspecionar: `docker compose exec redpanda rpk topic consume be-api.status-commands.DLT -n 1`.
+Na stack standalone, execute o mesmo comando. Repetir o mesmo eventId não aplica a alteração novamente. Eventos com erro transiente têm 3 retries espaçados em 2 segundos antes da DLT; comandos inválidos vão diretamente para DLT. Falha ao publicar na DLT não deve descartar o registro original. Para inspecionar: `docker compose exec redpanda rpk topic consume be-api.status-commands.DLT -n 1`.
 
 O publicador mantém eventos na outbox durante indisponibilidade do Kafka e tenta novamente a cada 2 segundos. O envio pode duplicar após falha entre ACK e commit; consumidores de eventos também devem ser idempotentes. O produtor de comandos deve usar customerId como chave. Recibos e outbox ainda não têm limpeza automática.
+
+## Como iniciar as dependências
+
+O Compose inicia automaticamente PostgreSQL, Redpanda (Kafka compatível), Keycloak e WireMock.
 
 ## Configuração
 
@@ -99,7 +113,7 @@ O publicador mantém eventos na outbox durante indisponibilidade do Kafka e tent
 | SCORE_CONNECT_TIMEOUT / SCORE_READ_TIMEOUT | 2s / 3s |
 | OUTBOX_DELAY | 2000 ms |
 
-No Nucleus, declare envs próprias em `project.yaml`. O `service.yml` customizado está protegido contra regeneração pelo lock do workload. Migrações Flyway são aplicadas no boot; Hibernate apenas valida o schema. O WireMock responde 750/LOW_RISK para CPFs de 11 dígitos; é uma simulação, não um cálculo real.
+Declare as variáveis de ambiente no arquivo `.env` ou no ambiente do container. O `service.yml` customizado está protegido contra regeneração pelo lock do workload. Migrações Flyway são aplicadas no boot; Hibernate apenas valida o schema. O WireMock responde 750/LOW_RISK para CPFs de 11 dígitos; é uma simulação, não um cálculo real.
 
 ## Testes
 

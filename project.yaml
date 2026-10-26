@@ -65,7 +65,7 @@ documentation:
 # local/dev/stage/homolog. `0` = gate desligado (opt-in: o time sobe o número quando quiser exigir).
 # Roda `make quality-check` (scripts/quality-gate-test.mjs) — unit por linguagem + cobertura.
 testing:
-  minCoverage: 0                    # % mínima p/ liberar release/prod (0 = sem gate)
+  minCoverage: 80                   # % mínima p/ liberar release/prod
   quality: sonarqube                    # sonarqube | none — análise de qualidade (SonarQube central; sonar-project.properties gerado)
 # Governance (5ª camada) — ownership + custo + políticas. Consumido pelo Portal/ownership e
 # verificável por `make governance-check`. team/slack/email/costCenter vêm do create; o resto é

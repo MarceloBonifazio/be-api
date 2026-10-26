@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.*;
 
 @Component
-public class ScoreClient {
+public class ScoreClient implements ScoreGateway {
   private final RestClient client;
 
   public ScoreClient(
