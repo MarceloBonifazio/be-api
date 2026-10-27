@@ -31,6 +31,13 @@ public class Customer {
   @Column(nullable = false)
   public Instant updatedAt;
 
+  public Integer score;
+
+  @Column(length = 32)
+  public String classification;
+
+  public Instant scoreQueriedAt;
+
   protected Customer() {}
 
   Customer(CustomerInput input) {
@@ -39,6 +46,11 @@ public class Customer {
   }
 
   void apply(CustomerInput input) {
+    if (cpf != null && !cpf.equals(input.cpf())) {
+      score = null;
+      classification = null;
+      scoreQueriedAt = null;
+    }
     name = input.name().trim();
     cpf = input.cpf();
     email = input.email().trim();

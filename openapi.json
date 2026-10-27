@@ -76,6 +76,15 @@
                 "INACTIVE"
               ]
             }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "description": "Busca parcial por nome, CPF (com ou sem pontuação) ou e-mail; combinável com status.",
+            "schema": {
+              "type": "string",
+              "maxLength": 150
+            }
           }
         ]
       },
@@ -123,7 +132,7 @@
     },
     "/customers/search": {
       "get": {
-        "summary": "Busca parcial por nome, sem distinguir maiúsculas",
+        "summary": "Busca parcial por nome, CPF ou e-mail, combinável com status",
         "description": "Requer USER ou ADMIN.",
         "responses": {
           "200": {
@@ -179,6 +188,17 @@
             "schema": {
               "type": "string",
               "minLength": 1
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "INACTIVE"
+              ]
             }
           }
         ]
@@ -307,7 +327,7 @@
       ],
       "get": {
         "summary": "Consulta Score pelo CPF do cliente",
-        "description": "Requer USER ou ADMIN.",
+        "description": "Requer USER ou ADMIN. Consulta o serviço externo e persiste a última consulta bem-sucedida e seu horário. Falhas preservam o score anterior.",
         "responses": {
           "200": {
             "description": "Sucesso",
@@ -367,6 +387,134 @@
           }
         }
       }
+    },
+    "/customers/summary": {
+      "get": {
+        "summary": "Indicadores globais da base de clientes",
+        "description": "Requer USER ou ADMIN.",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Sem autorização"
+          }
+        }
+      }
+    },
+    "/customers/events": {
+      "get": {
+        "summary": "Histórico global de atividades dos clientes",
+        "description": "Requer ADMIN. USER recebe HTTP 403.",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Sem autorização"
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ]
+      }
+    },
+    "/customers/{id}/events": {
+      "get": {
+        "summary": "Histórico de atividades de um cliente",
+        "description": "Requer ADMIN. USER recebe HTTP 403.",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Sem autorização"
+          },
+          "404": {
+            "description": "Cliente não encontrado"
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      ]
     }
   },
   "components": {
@@ -433,6 +581,33 @@
               "ACTIVE",
               "INACTIVE"
             ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "score": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000,
+            "nullable": true
+          },
+          "classification": {
+            "type": "string",
+            "nullable": true
+          },
+          "scoreQueriedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         }
       },
@@ -450,6 +625,10 @@
           },
           "classification": {
             "type": "string"
+          },
+          "queriedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -460,6 +639,86 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Customer"
+            }
+          },
+          "totalElements": {
+            "type": "integer"
+          },
+          "totalPages": {
+            "type": "integer"
+          },
+          "number": {
+            "type": "integer"
+          }
+        }
+      },
+      "CustomerSummary": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "active": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "inactive": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "scoredCustomers": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "newThisMonth": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "averageScore": {
+            "type": "number",
+            "nullable": true,
+            "description": "Média das últimas consultas bem-sucedidas dos clientes ainda cadastrados; null se não há consultas."
+          }
+        }
+      },
+      "CustomerActivity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "customerId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "CUSTOMER_CREATED",
+              "CUSTOMER_UPDATED",
+              "CUSTOMER_DELETED",
+              "SCORE_QUERIED",
+              "STATUS_CHANGED"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ActivityPage": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerActivity"
             }
           },
           "totalElements": {
