@@ -7,10 +7,14 @@ http:
     frontend:
       rule: PathPrefix(`/painel`)
       service: frontend
+      middlewares: [strip-frontend]
     identity:
       rule: PathPrefix(`/auth`)
       service: identity
   middlewares:
+    strip-frontend:
+      stripPrefix:
+        prefixes: [/painel]
     strip-api:
       stripPrefix:
         prefixes: [/api/be-api]

@@ -10,21 +10,22 @@ Java 21 · Spring Boot 4.1 · Gradle Wrapper · PostgreSQL/JPA/Flyway · Kafka �
 
 ## Executar
 
-Docker Compose é suficiente para rodar a solução completa. A partir deste diretório, com `../fe-painel` presente:
+Use a stack standalone definida em `docker-compose.yml` para executar a solução completa. Os projetos `be-api` e `fe-painel` devem estar lado a lado. No diretório `be-api`, execute:
 
 ```sh
 docker compose up --build -d
 ```
 
-Acesse **http://localhost:8088/painel/**. Login local: `admin` / `admin-dev` (USER + ADMIN) ou `user` / `user-dev` (somente USER). O primeiro boot baixa dependências e pode levar alguns minutos. Se a plataforma já estiver usando a porta 8088, use a stack standalone em vez de subir a stack standalone.
+Acesse **http://localhost:8088/painel/**. Login local: `admin` / `admin-dev` (USER + ADMIN) ou `user` / `user-dev` (somente USER). A primeira execução baixa imagens e dependências e pode levar alguns minutos. A porta 8088 deve estar disponível; se outro serviço estiver usando essa porta, libere-a antes de iniciar esta stack.
 
-Na raiz:
+Para conferir os serviços e acompanhar os logs, no mesmo diretório:
 
 ```sh
-docker compose -f docker-compose.base.yml -f projects/be-api/service.yml -f projects/fe-painel/service.yml up --build -d
+docker compose ps
+docker compose logs -f gateway be-api fe-painel
 ```
 
-Para parar a stack standalone: `docker compose down`. Os volumes preservam os dados. As configurações de identidade são importadas apenas no primeiro boot do realm; mudanças no arquivo não substituem automaticamente um realm existente.
+Para parar a stack: `docker compose down`. Os volumes preservam os dados. As configurações de identidade são importadas apenas na primeira inicialização do realm; mudanças no arquivo não substituem automaticamente um realm existente.
 
 ## Arquitetura
 
@@ -82,13 +83,13 @@ Tópicos locais com 3 partições:
 - `be-api.status-commands`: CUSTOMER_STATUS_CHANGE.
 - `be-api.status-commands.DLT`: mensagens inválidas ou com tentativas esgotadas.
 
-No diretório deste projeto, publique um comando na stack standalone:
+No diretório `be-api`, publique um comando de alteração de status para um cliente existente:
 
 ```sh
 printf '%s\n' '{"eventId":"cbca5352-22ad-48f2-aaf2-704735bc7737","eventType":"CUSTOMER_STATUS_CHANGE","customerId":1,"status":"INACTIVE"}' | docker compose exec -T redpanda rpk topic produce be-api.status-commands -k 1
 ```
 
-Na stack standalone, execute o mesmo comando. Repetir o mesmo eventId não aplica a alteração novamente. Eventos com erro transiente têm 3 retries espaçados em 2 segundos antes da DLT; comandos inválidos vão diretamente para DLT. Falha ao publicar na DLT não deve descartar o registro original. Para inspecionar: `docker compose exec redpanda rpk topic consume be-api.status-commands.DLT -n 1`.
+Substitua `customerId` e a chave `-k` pelo ID do cliente desejado e use um novo `eventId` para cada comando. Repetir o mesmo eventId não aplica a alteração novamente. Eventos com erro transiente têm 3 novas tentativas espaçadas em 2 segundos antes da DLT; comandos inválidos vão diretamente para DLT. Falha ao publicar na DLT não deve descartar o registro original. Para inspecionar: `docker compose exec redpanda rpk topic consume be-api.status-commands.DLT -n 1`.
 
 O publicador mantém eventos na outbox durante indisponibilidade do Kafka e tenta novamente a cada 2 segundos. O envio pode duplicar após falha entre ACK e commit; consumidores de eventos também devem ser idempotentes. O produtor de comandos deve usar customerId como chave. Recibos e outbox ainda não têm limpeza automática.
 
@@ -98,10 +99,10 @@ O Compose inicia automaticamente PostgreSQL, Redpanda (Kafka compatível), Keycl
 
 ## Configuração
 
-| Variável | Default local |
+| Variável | Valor na stack local |
 |---|---|
 | PORT | 4000 |
-| JDBC_DATABASE_URL | jdbc:postgresql://be-api-postgres:5432/app |
+| JDBC_DATABASE_URL | jdbc:postgresql://postgres:5432/app |
 | DB_USER / DB_PASSWORD | app / app |
 | KAFKA_BROKERS | redpanda:9092 |
 | KAFKA_TOPIC | be-api.events |
@@ -113,7 +114,9 @@ O Compose inicia automaticamente PostgreSQL, Redpanda (Kafka compatível), Keycl
 | SCORE_CONNECT_TIMEOUT / SCORE_READ_TIMEOUT | 2s / 3s |
 | OUTBOX_DELAY | 2000 ms |
 
-Declare as variáveis de ambiente no arquivo `.env` ou no ambiente do container. O `service.yml` customizado está protegido contra regeneração pelo lock do workload. Migrações Flyway são aplicadas no boot; Hibernate apenas valida o schema. O WireMock responde 750/LOW_RISK para CPFs de 11 dígitos; é uma simulação, não um cálculo real.
+Na stack standalone, ajuste as variáveis em `services.be-api.environment` no `docker-compose.yml`. O arquivo `.env` fornece valores para interpolação do Compose, mas não é repassado automaticamente ao container. As variáveis não declaradas no Compose usam os valores padrão de `src/main/resources/application.properties`.
+
+Migrações Flyway são aplicadas na inicialização; Hibernate apenas valida o schema. O WireMock responde 750/LOW_RISK para CPFs de 11 dígitos; é uma simulação, não um cálculo real.
 
 ## Testes
 
