@@ -45,22 +45,49 @@ public class CustomerController {
 
   @GetMapping
   public Page<CustomerView> list(
+      @RequestParam(defaultValue = "") @Size(max = 150) String query,
       @RequestParam(required = false) CustomerStatus status,
       @RequestParam(defaultValue = "0") @Min(0) int page,
       @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-    return service.list(status, page, size);
+    return query.isBlank() ? service.list(status, page, size)
+        : service.search(query, status, page, size);
   }
 
   @GetMapping("/search")
   public Page<CustomerView> search(
       @RequestParam @NotBlank @Size(max = 150) String name,
+      @RequestParam(required = false) CustomerStatus status,
       @RequestParam(defaultValue = "0") @Min(0) int page,
       @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-    return service.search(name, page, size);
+    return service.search(name, status, page, size);
+  }
+
+  @GetMapping("/summary")
+  public CustomerService.Summary summary() {
+    return service.summary();
+  }
+
+  @GetMapping("/events")
+  public Page<CustomerActivity> events(
+      @RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+    return service.events(null, page, size);
+  }
+
+  @GetMapping("/{id}/events")
+  public Page<CustomerActivity> customerEvents(@PathVariable @Positive long id,
+      @RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+    return service.events(id, page, size);
   }
 
   @GetMapping("/{id}/score")
-  public ScoreClient.Score score(@PathVariable @Positive long id) {
-    return scores.get(service.get(id).cpf());
+  public ScoreView score(@PathVariable @Positive long id) {
+    var customer = service.get(id);
+    var result = scores.get(customer.cpf());
+    var saved = service.recordScore(id, customer.cpf(), result);
+    return new ScoreView(saved.cpf(), saved.score(), saved.classification(), saved.scoreQueriedAt());
   }
+
+  public record ScoreView(String cpf, Integer score, String classification, java.time.Instant queriedAt) {}
 }

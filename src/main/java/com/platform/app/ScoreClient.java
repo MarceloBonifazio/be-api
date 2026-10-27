@@ -31,6 +31,7 @@ public class ScoreClient implements ScoreGateway {
           || result.score() < 0
           || result.score() > 1000
           || result.classification() == null
+          || result.classification().length() > 32
           || result.classification().isBlank())
         throw new ApiException(HttpStatus.BAD_GATEWAY, "Resposta inválida do serviço de Score.");
       return result;

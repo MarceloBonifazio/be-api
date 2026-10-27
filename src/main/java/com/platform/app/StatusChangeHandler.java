@@ -8,10 +8,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class StatusChangeHandler {
   private final CustomerRepository customers;
   private final ProcessedEventRepository processed;
+  private final CustomerActivityRepository activities;
 
-  public StatusChangeHandler(CustomerRepository customers, ProcessedEventRepository processed) {
+  public StatusChangeHandler(CustomerRepository customers, ProcessedEventRepository processed,
+      CustomerActivityRepository activities) {
     this.customers = customers;
     this.processed = processed;
+    this.activities = activities;
   }
 
   @Transactional
@@ -33,6 +36,8 @@ public class StatusChangeHandler {
     customer.status = command.status();
     customer.updatedAt = java.time.Instant.now();
     processed.saveAndFlush(new ProcessedEvent(command.eventId()));
+    activities.save(new CustomerActivity(customer.id, "STATUS_CHANGED",
+        "Status alterado via Kafka: " + command.status() + "."));
   }
 
   public record Command(UUID eventId, String eventType, Long customerId, CustomerStatus status) {}

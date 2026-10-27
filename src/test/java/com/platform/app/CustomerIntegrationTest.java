@@ -16,6 +16,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.ObjectMapper;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import static org.mockito.Mockito.*;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -28,6 +30,8 @@ class CustomerIntegrationTest {
   @Autowired CustomerService service;
   @Autowired StatusChangeHandler handler;
   @Autowired ObjectMapper json;
+  @Autowired CustomerActivityRepository activities;
+  @MockitoBean ScoreGateway scores;
 
   private RequestPostProcessor role(String role) {
     return jwt().authorities(new SimpleGrantedAuthority("ROLE_" + role));
@@ -39,6 +43,7 @@ class CustomerIntegrationTest {
 
   @BeforeEach
   void clean() {
+    activities.deleteAll();
     processed.deleteAll();
     outbox.deleteAll();
     customers.deleteAll();
@@ -51,14 +56,17 @@ class CustomerIntegrationTest {
             "/customers",
             "/customers/1",
             "/customers/search?name=joao",
-            "/customers/1/score")) mvc.perform(get(path)).andExpect(status().isUnauthorized());
+            "/customers/1/score",
+            "/customers/summary",
+            "/customers/events",
+            "/customers/1/events")) mvc.perform(get(path)).andExpect(status().isUnauthorized());
     mvc.perform(get("/health")).andExpect(status().isOk());
     mvc.perform(get("/live")).andExpect(status().isOk());
     mvc.perform(get("/version")).andExpect(status().isOk());
     mvc.perform(get("/docs")).andExpect(status().isOk());
     mvc.perform(get("/openapi.json")).andExpect(status().isOk());
     mvc.perform(get("/actuator/health")).andExpect(status().isOk());
-    mvc.perform(get("/config")).andExpect(status().isForbidden());
+    mvc.perform(get("/config").with(role("USER"))).andExpect(status().isForbidden());
     mvc.perform(get("/customers").header("Authorization", "Bearer invalid"))
         .andExpect(status().isUnauthorized());
   }
@@ -184,4 +192,84 @@ class CustomerIntegrationTest {
                     UUID.randomUUID(), "CUSTOMER_STATUS_CHANGE", 999L, CustomerStatus.ACTIVE)));
     assertEquals(0, processed.count());
   }
+
+  @Test
+  void searchesNameCpfAndEmailTogetherWithStatus() throws Exception {
+    service.create(new CustomerInput("João Silva", "52998224725", "joao@example.com", CustomerStatus.ACTIVE));
+    service.create(new CustomerInput("Maria", "12345678143", "maria@example.com", CustomerStatus.INACTIVE));
+    for (String query : List.of("JOÃO", "529.982.247-25", "JOAO@EXAMPLE")) {
+      mvc.perform(get("/customers").param("query", query).param("status", "ACTIVE").with(role("USER")))
+          .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1))
+          .andExpect(jsonPath("$.content[0].cpf").value("52998224725"));
+    }
+    mvc.perform(get("/customers").param("query", "maria").param("status", "ACTIVE").with(role("USER")))
+        .andExpect(jsonPath("$.totalElements").value(0));
+    mvc.perform(get("/customers").param("query", "%").with(role("USER")))
+        .andExpect(jsonPath("$.totalElements").value(0));
+    mvc.perform(get("/customers/search").param("name", "maria@example.com").param("status", "INACTIVE").with(role("USER")))
+        .andExpect(jsonPath("$.totalElements").value(1));
+  }
+
+  @Test
+  void persistsScoreAndReturnsRealSummaryAndActivityHistory() throws Exception {
+    var c = service.create(new CustomerInput("João", "52998224725", "joao@example.com", CustomerStatus.ACTIVE));
+    service.create(new CustomerInput("Maria", "12345678143", "maria@example.com", CustomerStatus.INACTIVE));
+    mvc.perform(get("/customers/summary").with(role("USER")))
+        .andExpect(jsonPath("$.total").value(2)).andExpect(jsonPath("$.active").value(1))
+        .andExpect(jsonPath("$.inactive").value(1)).andExpect(jsonPath("$.scoredCustomers").value(0))
+        .andExpect(jsonPath("$.averageScore").isEmpty());
+    when(scores.get("52998224725")).thenReturn(new ScoreClient.Score("52998224725", 750, "LOW_RISK"));
+    mvc.perform(get("/customers/{id}/score", c.id()).with(role("USER")))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.cpf").value("52998224725"))
+        .andExpect(jsonPath("$.score").value(750)).andExpect(jsonPath("$.queriedAt").isNotEmpty());
+    verify(scores).get("52998224725");
+    mvc.perform(get("/customers/{id}", c.id()).with(role("USER")))
+        .andExpect(jsonPath("$.score").value(750)).andExpect(jsonPath("$.scoreQueriedAt").isNotEmpty());
+    mvc.perform(get("/customers/summary").with(role("USER")))
+        .andExpect(jsonPath("$.averageScore").value(750.0)).andExpect(jsonPath("$.scoredCustomers").value(1))
+        .andExpect(jsonPath("$.newThisMonth").value(2));
+    mvc.perform(get("/customers/{id}/events", c.id()).with(role("ADMIN")))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(2))
+        .andExpect(jsonPath("$.content[0].type").value("SCORE_QUERIED"));
+    mvc.perform(get("/customers/events").with(role("ADMIN")))
+        .andExpect(jsonPath("$.totalElements").value(3));
+    mvc.perform(get("/customers/summary")).andExpect(status().isUnauthorized());
+    mvc.perform(get("/customers/events")).andExpect(status().isUnauthorized());
+    mvc.perform(get("/customers/{id}/events", Long.MAX_VALUE).with(role("ADMIN")))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void changingCpfClearsScoreAndRejectsStaleResults() {
+    var c = service.create(new CustomerInput("João", "52998224725", "joao@example.com", CustomerStatus.ACTIVE));
+    service.recordScore(c.id(), c.cpf(), new ScoreClient.Score(c.cpf(), 0, "HIGH_RISK"));
+    assertEquals(0.0, service.summary().averageScore());
+    var updated = service.update(c.id(), new CustomerInput("João", "12345678143", "joao@example.com", CustomerStatus.ACTIVE));
+    assertNull(updated.score());
+    assertNull(updated.classification());
+    assertNull(updated.scoreQueriedAt());
+    assertEquals(409, assertThrows(ApiException.class, () -> service.recordScore(c.id(), c.cpf(),
+        new ScoreClient.Score(c.cpf(), 750, "LOW_RISK"))).status.value());
+    assertEquals(0, service.summary().scoredCustomers());
+  }
+
+  @Test
+  void failedScoreDoesNotReplacePreviousConsultation() throws Exception {
+    var c = service.create(new CustomerInput("João", "52998224725", "joao@example.com", CustomerStatus.ACTIVE));
+    service.recordScore(c.id(), c.cpf(), new ScoreClient.Score(c.cpf(), 750, "LOW_RISK"));
+    when(scores.get(c.cpf())).thenThrow(new ApiException(org.springframework.http.HttpStatus.GATEWAY_TIMEOUT, "Tempo limite do serviço de Score excedido."));
+    mvc.perform(get("/customers/{id}/score", c.id()).with(role("USER"))).andExpect(status().isGatewayTimeout());
+    assertEquals(750, service.get(c.id()).score());
+    assertEquals(2, service.events(c.id(), 0, 20).getTotalElements());
+  }
+  @Test
+  void onlyAdminCanReadGlobalAndCustomerEvents() throws Exception {
+    var c = service.create(new CustomerInput("João", "52998224725", "joao@example.com", CustomerStatus.ACTIVE));
+    for (String path : List.of("/customers/events", "/customers/" + c.id() + "/events")) {
+      mvc.perform(get(path)).andExpect(status().isUnauthorized());
+      mvc.perform(get(path).with(role("USER"))).andExpect(status().isForbidden());
+      mvc.perform(get(path).with(role("ADMIN"))).andExpect(status().isOk());
+    }
+  }
+
 }

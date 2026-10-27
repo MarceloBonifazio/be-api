@@ -87,12 +87,15 @@ Base: `http://localhost:8088/api/be-api`.
 | PUT | `/customers/{id}` | ADMIN |
 | DELETE | `/customers/{id}` | ADMIN |
 | GET | `/customers/{id}` | USER/ADMIN |
-| GET | `/customers?page=0&size=20&status=ACTIVE` | USER/ADMIN |
+| GET | `/customers?page=0&size=20&status=ACTIVE&query=joao` | USER/ADMIN |
+| GET | `/customers/summary` | USER/ADMIN |
+| GET | `/customers/events?page=0&size=20` | ADMIN |
+| GET | `/customers/{id}/events?page=0&size=20` | ADMIN |
 | GET | `/customers/search?name=joao&page=0&size=20` | USER/ADMIN |
 | GET | `/customers/{id}/score` | USER/ADMIN |
 | GET | `/openapi.json`, `/docs`, `/version`, `/actuator/prometheus` | público |
 
-CPF: 11 dígitos, sem pontuação, com dígitos verificadores válidos. CPF é único; e-mail não é único. Status: ACTIVE ou INACTIVE. Busca por nome ignora maiúsculas/minúsculas. Listagens são paginadas, com tamanho máximo 100 e ordenadas por ID decrescente.
+CPF: 11 dígitos, sem pontuação, com dígitos verificadores válidos. CPF é único; e-mail não é único. Status: ACTIVE ou INACTIVE. A busca `query` combina nome, CPF (com ou sem pontuação) e e-mail, ignora maiúsculas/minúsculas e pode ser usada junto com `status`. A rota `/customers/search?name=...` permanece compatível e aceita os mesmos campos e o filtro de status. Listagens são paginadas, com tamanho máximo 100 e ordenadas por ID decrescente.
 
 ```sh
 export TOKEN='<access-token>'
@@ -101,6 +104,16 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8088/api/be-api/customer
 ```
 
 Erros: 400 dados inválidos, 401 token ausente/inválido, 403 perfil insuficiente, 404 cliente/Score inexistente, 409 CPF duplicado/conflito de atualização. Score: 502 resposta inválida/falha HTTP, 503 conexão indisponível, 504 timeout. Respostas de validação usam Problem Details e erros por campo.
+
+### Dados do painel CrediScore
+
+O painel exibe totais globais de clientes ativos e inativos, cadastros no mês corrente (fuso America/Sao_Paulo) e a média dos últimos scores consultados. Os indicadores vêm de `GET /customers/summary` e não dependem dos filtros ou da página atual. Sem consultas, a média é `null` e a interface exibe “—”. Não há porcentagens de crescimento simuladas.
+
+Cada consulta de score bem-sucedida mantém `score`, `classification` e `scoreQueriedAt` no cliente. A resposta de `/customers/{id}/score` inclui `queriedAt`. Falhas do serviço externo preservam o último resultado; alterar o CPF apaga o score anterior. A listagem usa esses valores persistidos, sem fazer uma chamada externa por linha.
+
+A migração V2 adiciona os campos de score e o histórico de atividades. Novos cadastros, edições, exclusões, consultas de score e alterações de status via Kafka são registrados na mesma transação da operação. O histórico é paginado por eventos mais recentes; os eventos globais continuam disponíveis após a exclusão do cliente. Operações anteriores à migração não têm histórico reconstruído. A tela Eventos é um histórico da aplicação, não uma confirmação de entrega de todas as atividades ao Kafka; a outbox mantém o contrato `CUSTOMER_CREATED` existente.
+
+O frontend oferece busca combinada, paginação, detalhes com abas e consulta de score com medidor visual. As ações de escrita continuam exclusivas de ADMIN; USER pode consultar clientes, indicadores e scores. Eventos, histórico dos clientes e informações de Ambiente de trabalho nas configurações são exclusivos de ADMIN. As rotas de eventos retornam 403 para USER.
 
 ### Cenários de Score no WireMock
 
