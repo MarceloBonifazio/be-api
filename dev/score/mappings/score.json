@@ -1,20 +1,234 @@
+
 {
-  "request": {
-    "method": "GET",
-    "urlPathPattern": "/scores/[0-9]{11}"
-  },
-  "response": {
-    "status": 200,
-    "headers": {
-      "Content-Type": "application/json"
+  "mappings": [
+    {
+      "name": "Score baixo risco - 850",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/scores/12345678143"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "cpf": "12345678143",
+          "score": 850,
+          "classification": "LOW_RISK"
+        }
+      }
     },
-    "jsonBody": {
-      "cpf": "{{request.pathSegments.[1]}}",
-      "score": 750,
-      "classification": "LOW_RISK"
+    {
+      "name": "Score medio risco - 550",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/scores/12345678224"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "cpf": "12345678224",
+          "score": 550,
+          "classification": "MEDIUM_RISK"
+        }
+      }
     },
-    "transformers": [
-      "response-template"
-    ]
-  }
+    {
+      "name": "Score alto risco - 250",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/scores/12345678305"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "cpf": "12345678305",
+          "score": 250,
+          "classification": "HIGH_RISK"
+        }
+      }
+    },
+    {
+      "name": "Score zero",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/scores/12345678496"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "cpf": "12345678496",
+          "score": 0,
+          "classification": "HIGH_RISK"
+        }
+      }
+    },
+    {
+      "name": "Score maximo - 1000",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/scores/12345678577"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "cpf": "12345678577",
+          "score": 1000,
+          "classification": "LOW_RISK"
+        }
+      }
+    },
+    {
+      "name": "Servico indisponivel - 503",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/scores/12345678658"
+      },
+      "response": {
+        "status": 503,
+        "headers": {
+          "Content-Type": "application/json",
+          "Retry-After": "30"
+        },
+        "jsonBody": {
+          "code": "SERVICE_UNAVAILABLE",
+          "message": "Servico temporariamente indisponivel"
+        }
+      }
+    },
+    {
+      "name": "Resposta lenta - 15 segundos",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/scores/12345678739"
+      },
+      "response": {
+        "status": 200,
+        "fixedDelayMilliseconds": 15000,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "cpf": "12345678739",
+          "score": 700,
+          "classification": "LOW_RISK"
+        }
+      }
+    },
+    {
+      "name": "Erro interno - 500",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/scores/12345678810"
+      },
+      "response": {
+        "status": 500,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "code": "INTERNAL_SERVER_ERROR",
+          "message": "Erro interno ao consultar score"
+        }
+      }
+    },
+    {
+      "name": "CPF nao encontrado - 404",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/scores/12345678909"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "code": "SCORE_NOT_FOUND",
+          "message": "Score nao encontrado",
+          "cpf": "12345678909"
+        }
+      }
+    },
+    {
+      "name": "CPF com formato invalido - 400",
+      "priority": 2,
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/scores/[^/]*[^0-9/][^/]*"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "code": "INVALID_CPF",
+          "message": "CPF deve conter exatamente 11 digitos numericos"
+        }
+      }
+    },
+    {
+      "name": "CPF com quantidade incorreta de digitos - 400",
+      "priority": 3,
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/scores/([0-9]{1,10}|[0-9]{12,})"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "code": "INVALID_CPF",
+          "message": "CPF deve conter exatamente 11 digitos numericos"
+        }
+      }
+    },
+    {
+      "name": "Score generico - fallback",
+      "priority": 10,
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/scores/[0-9]{11}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "cpf": "{{request.pathSegments.[1]}}",
+          "score": 750,
+          "classification": "LOW_RISK"
+        },
+        "transformers": [
+          "response-template"
+        ]
+      }
+    }
+  ]
 }

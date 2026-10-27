@@ -27,6 +27,18 @@ docker compose logs -f gateway be-api fe-painel
 
 Para parar a stack: `docker compose down`. Os volumes preservam os dados. As configurações de identidade são importadas apenas na primeira inicialização do realm; mudanças no arquivo não substituem automaticamente um realm existente.
 
+Para rebuildar o backend e recriar também o WireMock (serviço `score`):
+
+```sh
+docker compose up -d --build --force-recreate be-api score
+```
+
+O WireMock usa uma imagem pronta e os arquivos montados de `dev/score`. Se alterar apenas os mappings, recarregue-os reiniciando o serviço:
+
+```sh
+docker compose restart score
+```
+
 ## Arquitetura
 
 Um serviço de clientes com camadas HTTP, aplicação, JPA e adaptadores Kafka/Score. Keycloak é o servidor de identidade; a API é Resource Server JWT. O frontend é uma SPA separada e o Score é simulado por WireMock.
@@ -45,6 +57,21 @@ Para Postman/Insomnia configure OAuth 2.0 Authorization Code com PKCE:
 - Cadastre o callback exato da sua ferramenta no cliente do Keycloak pelo console `http://localhost:8088/auth/admin/` (operador local `operator` / `operator-dev`). Os callbacks iniciais permitem apenas o painel.
 
 Use o Access Token em `Authorization: Bearer <token>`. Não use ID Token. Fluxo de senha direta está desabilitado.
+
+### Rotas do Keycloak
+
+Base pública: `http://localhost:8088/auth`. O gateway encaminha `/auth` ao Keycloak; dentro da rede Docker, a base é `http://keycloak:8080/auth`.
+
+| Método | Caminho relativo à base | Uso |
+|---|---|---|
+| GET | `/admin/` | Console administrativo; login local `operator` / `operator-dev` |
+| GET | `/realms/nucleus/account/` | Conta do usuário do realm `nucleus` |
+| GET | `/realms/nucleus/.well-known/openid-configuration` | Descoberta dos endpoints OpenID Connect |
+| GET | `/realms/nucleus/protocol/openid-connect/auth` | Login via Authorization Code + PKCE; requer os parâmetros OAuth2 |
+| POST | `/realms/nucleus/protocol/openid-connect/token` | Troca do código por tokens e renovação via refresh token |
+| GET | `/realms/nucleus/protocol/openid-connect/certs` | Chaves públicas (JWKS) para validar tokens |
+
+O painel usa o cliente público `fe-painel`. Os usuários de demonstração são `admin` / `admin-dev` e `user` / `user-dev`; o usuário `operator` administra o Keycloak.
 
 ## Scalar e OpenAPI
 
@@ -74,6 +101,44 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8088/api/be-api/customer
 ```
 
 Erros: 400 dados inválidos, 401 token ausente/inválido, 403 perfil insuficiente, 404 cliente/Score inexistente, 409 CPF duplicado/conflito de atualização. Score: 502 resposta inválida/falha HTTP, 503 conexão indisponível, 504 timeout. Respostas de validação usam Problem Details e erros por campo.
+
+### Cenários de Score no WireMock
+
+Base interna: `http://score:8080`. O Compose não publica uma porta do WireMock no host e o gateway não possui rota para ele; portanto, `http://localhost:8088/scores/...` não dá acesso ao WireMock.
+
+| Método | Caminho | Uso |
+|---|---|---|
+| GET | `/scores/{cpf}` | Consulta simulada de score, conforme os cenários abaixo |
+| GET | `/__admin/mappings` | Inspeciona os mappings carregados |
+| GET | `/__admin/requests` | Inspeciona as requisições recebidas |
+
+Para consultar diretamente pela rede Docker, usando a imagem curl em um container temporário:
+
+```sh
+docker run --rm --network nucleus-customers_default curlimages/curl:latest -sS http://score:8080/scores/12345678143
+docker run --rm --network nucleus-customers_default curlimages/curl:latest -sS http://score:8080/__admin/mappings
+```
+
+Pela API autenticada, use `GET http://localhost:8088/api/be-api/customers/{id}/score`, com o ID de um cliente cadastrado. Os CPFs dos cenários específicos abaixo têm dígitos verificadores válidos e podem ser cadastrados na API. Os exemplos `abc123` e `12345` são intencionalmente inválidos e servem para testar diretamente as respostas 400 do WireMock.
+
+Na stack local, os resultados abaixo são simulações fornecidas pelo WireMock (não são calculados pela API). O status é o status HTTP configurado na resposta do WireMock. A resposta lenta aguarda 15 segundos; como o timeout de leitura padrão da API é 3 segundos, a chamada pela API pode terminar com 504 antes de receber essa resposta.
+
+| CPF | Status no WireMock | Resultado |
+|---|---:|---|
+| `12345678143` | 200 | `LOW_RISK` — 850 |
+| `12345678224` | 200 | `MEDIUM_RISK` — 550 |
+| `12345678305` | 200 | `HIGH_RISK` — 250 |
+| `12345678496` | 200 | `HIGH_RISK` — 0 |
+| `12345678577` | 200 | `LOW_RISK` — 1000 |
+| `12345678658` | 503 | Serviço indisponível |
+| `12345678739` | 200 | Delay de 15 segundos (`LOW_RISK` — 700) |
+| `12345678810` | 500 | Erro interno |
+| `12345678909` | 404 | Score não encontrado |
+| `abc123` | 400 | CPF inválido |
+| `12345` | 400 | CPF incompleto |
+| Qualquer outro CPF de 11 dígitos | 200 | `LOW_RISK` — 750 |
+
+A regra de CPF numérico com tamanho inválido aceita apenas comprimentos diferentes de 11 dígitos. Assim, CPFs de 11 dígitos sem cenário específico usam o fallback de score 750. Os cenários explícitos da tabela têm prioridade 1.
 
 ## Kafka
 
@@ -116,7 +181,7 @@ O Compose inicia automaticamente PostgreSQL, Redpanda (Kafka compatível), Keycl
 
 Na stack standalone, ajuste as variáveis em `services.be-api.environment` no `docker-compose.yml`. O arquivo `.env` fornece valores para interpolação do Compose, mas não é repassado automaticamente ao container. As variáveis não declaradas no Compose usam os valores padrão de `src/main/resources/application.properties`.
 
-Migrações Flyway são aplicadas na inicialização; Hibernate apenas valida o schema. O WireMock responde 750/LOW_RISK para CPFs de 11 dígitos; é uma simulação, não um cálculo real.
+Migrações Flyway são aplicadas na inicialização; Hibernate apenas valida o schema.
 
 ## Testes
 
